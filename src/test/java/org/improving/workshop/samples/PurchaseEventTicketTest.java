@@ -115,7 +115,7 @@ public class PurchaseEventTicketTest {
       assertEquals("CONFIRMED", it.value().getConfirmationStatus());
     });
 
-   // and there are zero tickets remaining
+    // and there are zero tickets remaining
     assertEquals(0, latestRecords.getLast().value().getRemainingTickets());
 
     // when purchasing additional tickets
