@@ -83,7 +83,7 @@ public class TopOutsideState {
                 .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id().concat(eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.eventTicket.event.id()), Named.as("rekey_by_eventvenueid"))
                 .groupByKey()
                 .aggregate(
-                        EventTicketVenueAddressCustAddress::new,
+                        TicketsByEventAndVenue::new,
 
                         (eventVenueId, stream, ticketsByEventAndVenue) -> {
                             ticketsByEventAndVenue.increamentCount();
