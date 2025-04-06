@@ -12,6 +12,7 @@ import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.*;
 import org.improving.workshop.Streams;
 import org.improving.workshop.samples.PurchaseEventTicket;
+import org.improving.workshop.samples.TopCustomerArtists;
 import org.springframework.kafka.support.serializer.JsonSerde;
 
 import java.util.LinkedHashMap;
@@ -27,6 +28,8 @@ import org.msse.demo.mockdata.customer.address.Address;
 import org.msse.demo.mockdata.music.venue.Venue;
 
 public class TopOutsideState {
+    //private final static JsonSerde<TicketsByEventAndVenue> ticketsByEventAndVenueSerde = new JsonSerde<TicketsByEventAndVenue>();
+    public static final JsonSerde<TicketsByEventAndVenue> ticketsByEventAndVenueSerde = new JsonSerde<>(TicketsByEventAndVenue.class);
     public static void main(final String[] args){
         final StreamsBuilder builder = new StreamsBuilder();
         //configureToplogy(builder);
@@ -77,8 +80,26 @@ public class TopOutsideState {
                         (customerid,eventTicketVenueAddress,customerAddress) -> new EventTicketVenueAddressCustAddress(eventTicketVenueAddress,customerAddress))
                 .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id(), Named.as("rekey_by_venueid"))
                 .filter((venueid,eventTicketVenueAddressCustAddress) -> !(eventTicketVenueAddressCustAddress.customerAddress.state().equals(eventTicketVenueAddressCustAddress.eventTicketVenueAddress.venueAddress.state())))
+                .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id().concat(eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.eventTicket.event.id()), Named.as("rekey_by_eventvenueid"))
                 .groupByKey()
-                .aggregate()
+                .aggregate(
+                        EventTicketVenueAddressCustAddress::new,
+
+                        (eventVenueId, stream, ticketsByEventAndVenue) -> {
+                            ticketsByEventAndVenue.increamentCount();
+                            ticketsByEventAndVenue.eventId = stream.eventTicketVenueAddress.eventTicketVenue.eventTicket.event.id();
+                            ticketsByEventAndVenue.venueId = stream.eventTicketVenueAddress.eventTicketVenue.venue.id();
+                            ticketsByEventAndVenue.venueName = stream.eventTicketVenueAddress.eventTicketVenue.venue.name();
+                            return ticketsByEventAndVenue;
+                        },
+
+                        // ktable (materialized) configuration
+                        Materialized
+                                .<String, TicketsByEventAndVenue>as(persistentKeyValueStore("ticket_count_by_venue_event"))
+                                .withKeySerde(Serdes.String())
+                                .withValueSerde(TopOutsideState.ticketsByEventAndVenueSerde)
+
+                )
 
 
                 .
@@ -112,5 +133,17 @@ public class TopOutsideState {
     public static class EventTicketVenueAddressCustAddress {
         private EventTicketVenueAddress eventTicketVenueAddress;
         private Address customerAddress;
+    }
+    @Data
+    @AllArgsConstructor
+    public static class TicketsByEventAndVenue {
+        private String eventId;
+        private String venueId;
+        private String venueName;
+        private int outOfStateTicketCount;
+
+        public void increamentCount(){
+            this.outOfStateTicketCount += 1;
+        }
     }
 }
