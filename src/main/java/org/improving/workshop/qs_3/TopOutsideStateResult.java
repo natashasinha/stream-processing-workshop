@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 public class TopOutsideStateResult {
     public static final String OUTPUT_TOPIC = "kafka-workshop-average-out-of-state-attendees-per-venue-per-event";
     private String venueName;
-    private String avgOutOfStateAttendeesPerEvent;
+    private Double avgOutOfStateAttendeesPerEvent;
 }
 
 

@@ -30,6 +30,12 @@ import org.msse.demo.mockdata.music.venue.Venue;
 public class TopOutsideState {
     //private final static JsonSerde<TicketsByEventAndVenue> ticketsByEventAndVenueSerde = new JsonSerde<TicketsByEventAndVenue>();
     public static final JsonSerde<TicketsByEventAndVenue> ticketsByEventAndVenueSerde = new JsonSerde<>(TicketsByEventAndVenue.class);
+    public static final JsonSerde<RollingTicketCountByVenue> rollingTicketCountByVenueSerde = new JsonSerde<>(RollingTicketCountByVenue.class);
+    // MUST BE PREFIXED WITH "kafka-workshop-"
+    public static final String OUTPUT_TOPIC = "top-out-of-state-tickets-per-venue";
+
+    public static final JsonSerde<SortedCounterMap> COUNTER_MAP_JSON_SERDE = new JsonSerde<>(SortedCounterMap.class);
+    public static final JsonSerde<TopOutsideStateResult> topOutsideStateResultSerde = new JsonSerde<>(TopOutsideStateResult.class);
     public static void main(final String[] args){
         final StreamsBuilder builder = new StreamsBuilder();
         //configureToplogy(builder);
@@ -92,15 +98,45 @@ public class TopOutsideState {
                             ticketsByEventAndVenue.venueName = stream.eventTicketVenueAddress.eventTicketVenue.venue.name();
                             return ticketsByEventAndVenue;
                         },
-
                         // ktable (materialized) configuration
                         Materialized
-                                .<String, TicketsByEventAndVenue>as(persistentKeyValueStore("ticket_count_by_venue_event"))
+                                .<String, TicketsByEventAndVenue>as(persistentKeyValueStore("tickets-by-event-and-venue"))
                                 .withKeySerde(Serdes.String())
-                                .withValueSerde(TopOutsideState.ticketsByEventAndVenueSerde)
-
+                                .withValueSerde(ticketsByEventAndVenueSerde)
                 )
-                .toStream();
+                .toStream()
+                .groupByKey()
+                .aggregate(
+                        RollingTicketCountByVenue::new,
+                        (eventVenueId, stream, rollingTicketCountByVenue) -> {
+                            rollingTicketCountByVenue.venueName = stream.venueName;
+                            rollingTicketCountByVenue.calculateRollingAvg(stream.outOfStateTicketCount);
+                            return rollingTicketCountByVenue;
+                        },
+                        // ktable (materialized) configuration
+                        Materialized
+                                .<String, RollingTicketCountByVenue>as(persistentKeyValueStore("rolling-tickets-by-venue"))
+                                .withKeySerde(Serdes.String())
+                                .withValueSerde(rollingTicketCountByVenueSerde)
+                ).toStream()
+                .groupByKey()
+                .aggregate(
+                        // initializer
+                        SortedCounterMap::new,
+
+                        // aggregator
+                        (eventIdVenueId, stream, sortedCounterMap) -> {
+                            sortedCounterMap.updateTicketsCount(stream);
+                            return sortedCounterMap;
+                        }
+                )
+
+                // turn it back into a stream so that it can be produced to the OUTPUT_TOPIC
+                .toStream()
+                // trim to only the top 3
+                .mapValues(sortedCounterMap -> sortedCounterMap.top())
+                // NOTE: when using ccloud, the topic must exist or 'auto.create.topics.enable' set to true (dedicated cluster required)
+                .to(OUTPUT_TOPIC, Produced.with(Serdes.String(),topOutsideStateResultSerde));
     }
 
     @Data
@@ -142,6 +178,62 @@ public class TopOutsideState {
         }
         public void increamentCount(){
             this.outOfStateTicketCount += 1;
+        }
+    }
+    @Data
+    @AllArgsConstructor
+    public static class RollingTicketCountByVenue{
+        private String venueName;
+        private int totalOutOfStateTicketsPerVenue;
+        private int totalEventsForVenue;
+        private double rollingAvg;
+        public RollingTicketCountByVenue() {
+            totalOutOfStateTicketsPerVenue=0;
+            totalEventsForVenue=0;
+        }
+        public void calculateRollingAvg(int ticketsPerEvent){
+            this.totalOutOfStateTicketsPerVenue += ticketsPerEvent;
+            this.totalEventsForVenue++;
+            this.rollingAvg = this.totalOutOfStateTicketsPerVenue/this.totalEventsForVenue;
+        }
+
+    }
+    @Data
+    @AllArgsConstructor
+    public static class SortedCounterMap {
+        private int maxSize;
+
+        private LinkedHashMap<String, Double> ticketsMap;
+
+        public SortedCounterMap() {
+            this(1000);
+        }
+
+        public SortedCounterMap(int maxSize) {
+            this.maxSize = maxSize;
+            this.ticketsMap = new LinkedHashMap<>();
+        }
+
+        public void updateTicketsCount(RollingTicketCountByVenue rollingTicketCountByVenue) {
+            ticketsMap.compute(rollingTicketCountByVenue.venueName, (k, v) -> rollingTicketCountByVenue.rollingAvg);
+            // replace with sorted map
+            this.ticketsMap = ticketsMap.entrySet().stream()
+                    .sorted(reverseOrder(Map.Entry.comparingByValue()))
+                    // keep a limit on the map size
+                    .limit(maxSize)
+                    .collect(toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e1, LinkedHashMap::new));
+        }
+
+        public TopOutsideStateResult top() {
+            LinkedHashMap<String, Double> topOutOfStateVenue= ticketsMap.entrySet().stream()
+                    .limit(1)
+                    .collect(toMap(Map.Entry::getKey, Map.Entry::getValue, (e1, e2) -> e1, LinkedHashMap::new));
+            TopOutsideStateResult result = new TopOutsideStateResult();
+            Map.Entry<String,Double> entry = topOutOfStateVenue.entrySet().iterator().next();
+
+            result.setVenueName(entry.getKey());
+            result.setAvgOutOfStateAttendeesPerEvent(entry.getValue());
+            return result;
         }
     }
 }
