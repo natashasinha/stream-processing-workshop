@@ -100,11 +100,7 @@ public class TopOutsideState {
                                 .withValueSerde(TopOutsideState.ticketsByEventAndVenueSerde)
 
                 )
-
-
-                .
-
-
+                .toStream();
     }
 
     @Data
@@ -141,7 +137,9 @@ public class TopOutsideState {
         private String venueId;
         private String venueName;
         private int outOfStateTicketCount;
-
+        public TicketsByEventAndVenue() {
+            outOfStateTicketCount=0;
+        }
         public void increamentCount(){
             this.outOfStateTicketCount += 1;
         }
