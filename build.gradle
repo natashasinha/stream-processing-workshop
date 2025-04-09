@@ -22,7 +22,9 @@ repositories {
 }
 
 application {
-    mainClassName = project.hasProperty("stream") ? project.getProperty("stream") : "NULL"
+    application {
+    mainClassName = 'org.improving.workshop.qs_1.MostSoldOutArtist'
+}
 }
 
 run {

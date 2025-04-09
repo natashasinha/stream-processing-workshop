@@ -1,13 +1,15 @@
 package org.improving.workshop.qs_1;
 
-import org.apache.kafka.common.serialization.Deserializer;
+// import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.serialization.Serializer;
+// import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.TestInputTopic;
 import org.apache.kafka.streams.TestOutputTopic;
 import org.apache.kafka.streams.TopologyTestDriver;
+import org.apache.kafka.streams.test.TestRecord;
 import org.improving.workshop.Streams;
+import org.improving.workshop.utils.DataFaker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,51 +17,60 @@ import org.junit.jupiter.api.Test;
 import org.msse.demo.mockdata.music.event.Event;
 import org.msse.demo.mockdata.music.ticket.Ticket;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.util.LinkedHashMap;
+import java.util.List;
 
 import static org.improving.workshop.utils.DataFaker.TICKETS;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class MostSoldOutArtistTest {
-
-    private final static Serializer<String> stringSerializer = Serdes.String().serializer();
-    private final static Deserializer<String> stringDeserializer = Serdes.String().deserializer();
 
     private TopologyTestDriver driver;
 
     // inputs
-    private TestInputTopic<String, Event> eventInputTopic;
-    private TestInputTopic<String, Ticket> ticketInputTopic;
+    private TestInputTopic<String, org.msse.demo.mockdata.music.ticket.Ticket> ticketInput;
+    private TestInputTopic<String, org.msse.demo.mockdata.music.event.Event> eventInput;
+    private TestInputTopic<String, org.msse.demo.mockdata.music.artist.Artist> artistInput;
 
-    //outputs
-    private TestOutputTopic<String, LinkedHashMap<String, Long>> outputTopic;
+    // outputs
+    private TestOutputTopic<String, MostSoldOutArtist.MostSoldOutArtistResult> outputTopic;
 
     @BeforeEach
     void setup() {
-        StreamsBuilder streamsBuilder = new StreamsBuilder();
-        MostSoldOutArtist.configureTopology(streamsBuilder);
-        driver = new TopologyTestDriver(streamsBuilder.build(), Streams.buildProperties());
+        // instantiate new builder
+        StreamsBuilder builder = new StreamsBuilder();
 
-        eventInputTopic = driver.createInputTopic(
-                Streams.TOPIC_DATA_DEMO_EVENTS,
-                Serdes.String().serializer(),
-                Streams.SERDE_EVENT_JSON.serializer()
-        );
+        // build the topology
+        MostSoldOutArtist.configureTopology(builder);
 
-        ticketInputTopic = driver.createInputTopic(
+        // build the TopologyTestDriver
+        driver = new TopologyTestDriver(builder.build(), Streams.buildProperties());
+
+        // create input topics
+        ticketInput = driver.createInputTopic(
                 Streams.TOPIC_DATA_DEMO_TICKETS,
                 Serdes.String().serializer(),
                 Streams.SERDE_TICKET_JSON.serializer()
         );
 
-//        outputTopic = driver.createOutputTopic(
-//                MostSoldOutArtist.OUTPUT_TOPIC,
-//                Serdes.String().deserializer(),
-//                MostSoldOutArtist.LINKED_HASH_MAP_JSON_SERDE.deserializer()
-//        );
+        eventInput = driver.createInputTopic(
+                Streams.TOPIC_DATA_DEMO_EVENTS,
+                Serdes.String().serializer(),
+                Streams.SERDE_EVENT_JSON.serializer()
+        );
+
+        artistInput = driver.createInputTopic(
+                Streams.TOPIC_DATA_DEMO_ARTISTS,
+                Serdes.String().serializer(),
+                Streams.SERDE_ARTIST_JSON.serializer()
+        );
+
+        // create output topic using the SERDE from MostSoldOutArtist
+        outputTopic = driver.createOutputTopic(
+                MostSoldOutArtist.OUTPUT_TOPIC,
+                Serdes.String().deserializer(),
+                MostSoldOutArtist.SERDE_MOST_SOLD_OUT_ARTIST_RESULT_JSON.deserializer()
+        );
     }
 
     @AfterEach
@@ -68,25 +79,75 @@ public class MostSoldOutArtistTest {
     }
 
     @Test
-    @DisplayName("Most sold-out artist calculation")
-    void mostSoldOutArtistTest() {
-        String event1 = "event-1";
-        String event2 = "event-2";
-        String artist1 = "artist-1";
-        String artist2 = "artist-2";
+    @DisplayName("Artist with the most sold-out events")
+    void testMostSoldOutArtist() {
+        // produce an Artist
+        var artist = DataFaker.ARTISTS.generate();
+        artistInput.pipeInput(artist.id(), artist);
 
-        eventInputTopic.pipeInput(event1, new Event(event1, artist1, "venue-1", 3, "today"));
-        eventInputTopic.pipeInput(event2, new Event(event2, artist2, "venue-2", 2, "today"));
+        // create event and tickets
+        var event = DataFaker.EVENTS.generate(artist.id(), 100);
+        eventInput.pipeInput(event.id(), event);
 
-        ticketInputTopic.pipeInput(TICKETS.generate("customer-1", event1));
-        ticketInputTopic.pipeInput(TICKETS.generate("customer-2", event1));
-        ticketInputTopic.pipeInput(TICKETS.generate("customer-3", event1));
-        ticketInputTopic.pipeInput(TICKETS.generate("customer-4", event2));
-        ticketInputTopic.pipeInput(TICKETS.generate("customer-5", event2));
+        for (int i = 0; i < 96; i++) {
+            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event.id()));
+        }
 
-        var outputRecords = outputTopic.readRecordsToList();
+        // read results
+        List<TestRecord<String, MostSoldOutArtist.MostSoldOutArtistResult>> outputRecords = outputTopic.readRecordsToList();
+        assertFalse(outputRecords.isEmpty(), "Expected at least one output record");
 
-        assertEquals(2, outputRecords.size());
-        assertEquals(artist1, outputRecords.getLast().key());
+        MostSoldOutArtist.MostSoldOutArtistResult finalResult = outputRecords.get(outputRecords.size() - 1).getValue();
+        assertEquals(artist.id(), finalResult.getArtistId());
+        assertEquals(artist.name(), finalResult.getArtistName());
+        assertTrue(finalResult.getSoldOutCount() >= 1);
+    }
+
+    @Test
+    @DisplayName("No sold-out events should result in no output")
+    void testNoSoldOutEvents() {
+        // produce an Artist
+        var artist = DataFaker.ARTISTS.generate();
+        artistInput.pipeInput(artist.id(), artist);
+
+        // create an event but not enough ticket sales
+        var event = DataFaker.EVENTS.generate(artist.id(), 100);
+        eventInput.pipeInput(event.id(), event);
+
+        for (int i = 0; i < 50; i++) {
+            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event.id()));
+        }
+
+        // read results
+        List<TestRecord<String, MostSoldOutArtist.MostSoldOutArtistResult>> outputRecords = outputTopic.readRecordsToList();
+        assertTrue(outputRecords.isEmpty(), "Expected no output records");
+    }
+
+    @Test
+    @DisplayName("Multiple artists with sold-out events")
+    void testMultipleArtists() {
+        var artist1 = DataFaker.ARTISTS.generate();
+        var artist2 = DataFaker.ARTISTS.generate();
+        artistInput.pipeInput(artist1.id(), artist1);
+        artistInput.pipeInput(artist2.id(), artist2);
+
+        var event1 = DataFaker.EVENTS.generate(artist1.id(), 100);
+        var event2 = DataFaker.EVENTS.generate(artist2.id(), 150);
+        eventInput.pipeInput(event1.id(), event1);
+        eventInput.pipeInput(event2.id(), event2);
+
+        for (int i = 0; i < 96; i++) {
+            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event1.id()));
+        }
+        for (int i = 0; i < 145; i++) {
+            ticketInput.pipeInput("ticket-" + (i + 100), DataFaker.TICKETS.generate(event2.id()));
+        }
+
+        List<TestRecord<String, MostSoldOutArtist.MostSoldOutArtistResult>> outputRecords = outputTopic.readRecordsToList();
+        assertFalse(outputRecords.isEmpty(), "Expected at least one output record");
+
+        MostSoldOutArtist.MostSoldOutArtistResult finalResult = outputRecords.get(outputRecords.size() - 1).getValue();
+        assertTrue(finalResult.getArtistId().equals(artist1.id()) || finalResult.getArtistId().equals(artist2.id()));
+        assertTrue(finalResult.getSoldOutCount() >= 1);
     }
 }

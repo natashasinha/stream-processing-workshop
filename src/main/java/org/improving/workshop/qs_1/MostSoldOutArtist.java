@@ -5,9 +5,11 @@ import lombok.NoArgsConstructor;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.*;
+import org.apache.kafka.streams.state.KeyValueStore;
 import org.springframework.kafka.support.serializer.JsonSerde;
 import org.msse.demo.mockdata.music.artist.Artist;
 import org.msse.demo.mockdata.music.event.Event;
@@ -50,7 +52,7 @@ public class MostSoldOutArtist {
         // aggregate ticket counts per event ID
         KTable<String, Long> ticketsSoldPerEvent = ticketStream
                 .groupBy((key, ticket) -> ticket.eventid(), Grouped.with(Serdes.String(), SERDE_TICKET_JSON))
-                .count(Materialized.<String, Long>as("tickets-sold-per-event")
+                .count(Materialized.<String, Long, KeyValueStore<Bytes, byte[]>>as("tickets-sold-per-event")
                         .withKeySerde(Serdes.String())
                         .withValueSerde(Serdes.Long()));
 
@@ -66,9 +68,10 @@ public class MostSoldOutArtist {
 
         // aggregate the count by artist ID to calculate the number of sold-out events per artist
         KTable<String, Long> soldOutEventsPerArtist = soldOutEvents
-                .groupBy((eventId, eventSales) -> eventSales.getEvent().artistid(),
+                .groupBy(
+                        (eventId, eventSales) -> KeyValue.pair(eventSales.getEvent().artistid(), eventSales),
                         Grouped.with(Serdes.String(), SERDE_ENRICHED_EVENT_SALES))
-                .count(Materialized.<String, Long>as("artist-sold-out-count")
+                .count(Materialized.<String, Long, KeyValueStore<Bytes, byte[]>>as("artist-sold-out-count")
                         .withKeySerde(Serdes.String())
                         .withValueSerde(Serdes.Long()));
 
