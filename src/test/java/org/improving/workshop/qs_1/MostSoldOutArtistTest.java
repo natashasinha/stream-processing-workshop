@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 
 import static org.improving.workshop.utils.DataFaker.TICKETS;
+import static org.improving.workshop.utils.DataFaker.VENUES;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class MostSoldOutArtistTest {
@@ -86,11 +87,11 @@ public class MostSoldOutArtistTest {
         artistInput.pipeInput(artist.id(), artist);
 
         // create event and tickets
-        var event = DataFaker.EVENTS.generate(artist.id(), 100);
+        var event = DataFaker.EVENTS.generate(artist.id(), VENUES.randomId(), 100);
         eventInput.pipeInput(event.id(), event);
 
         for (int i = 0; i < 96; i++) {
-            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event.id()));
+            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event.id(), VENUES.randomId()));
         }
 
         // read results
@@ -111,11 +112,11 @@ public class MostSoldOutArtistTest {
         artistInput.pipeInput(artist.id(), artist);
 
         // create an event but not enough ticket sales
-        var event = DataFaker.EVENTS.generate(artist.id(), 100);
+        var event = DataFaker.EVENTS.generate(VENUES.randomId(), artist.id(), 100);
         eventInput.pipeInput(event.id(), event);
 
         for (int i = 0; i < 50; i++) {
-            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event.id()));
+            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(VENUES.randomId(), event.id()));
         }
 
         // read results
@@ -131,16 +132,16 @@ public class MostSoldOutArtistTest {
         artistInput.pipeInput(artist1.id(), artist1);
         artistInput.pipeInput(artist2.id(), artist2);
 
-        var event1 = DataFaker.EVENTS.generate(artist1.id(), 100);
-        var event2 = DataFaker.EVENTS.generate(artist2.id(), 150);
+        var event1 = DataFaker.EVENTS.generate(VENUES.randomId(), artist1.id(), 100);
+        var event2 = DataFaker.EVENTS.generate(VENUES.randomId(), artist2.id(), 150);
         eventInput.pipeInput(event1.id(), event1);
         eventInput.pipeInput(event2.id(), event2);
 
         for (int i = 0; i < 96; i++) {
-            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event1.id()));
+            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(VENUES.randomId(), event1.id()));
         }
         for (int i = 0; i < 145; i++) {
-            ticketInput.pipeInput("ticket-" + (i + 100), DataFaker.TICKETS.generate(event2.id()));
+            ticketInput.pipeInput("ticket-" + (i + 100), DataFaker.TICKETS.generate(VENUES.randomId(), event2.id()));
         }
 
         List<TestRecord<String, MostSoldOutArtist.MostSoldOutArtistResult>> outputRecords = outputTopic.readRecordsToList();
