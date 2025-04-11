@@ -16,7 +16,9 @@ import org.improving.workshop.samples.PurchaseEventTicket;
 import org.improving.workshop.samples.TopCustomerArtists;
 import org.springframework.kafka.support.serializer.JsonSerde;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static java.util.Collections.reverseOrder;
@@ -122,6 +124,7 @@ public class TopOutsideState {
                                 .withValueSerde(ticketsByEventAndVenueSerde)
                 )
                 .toStream()
+                .selectKey((eventVenueId,ticketsByEventAndVenue) -> ticketsByEventAndVenue.venueId, Named.as("rekey_by_venueId_3"))
                 //.peek((eventVenueId, ticketsByEventAndVenue) -> log.info("after aggregate TicketsByEventAndVenue. '{}'>'{}'", eventVenueId,ticketsByEventAndVenue.outOfStateTicketCount))
 
                 .groupByKey(Grouped.with(Serdes.String(),ticketsByEventAndVenueSerde))
@@ -129,7 +132,7 @@ public class TopOutsideState {
                         RollingTicketCountByVenue::new,
                         (eventVenueId, stream, rollingTicketCountByVenue) -> {
                             rollingTicketCountByVenue.venueName = stream.venueName;
-                            rollingTicketCountByVenue.calculateRollingAvg(stream.outOfStateTicketCount);
+                            rollingTicketCountByVenue.calculateRollingAvg(stream.outOfStateTicketCount,stream.venueId,stream.getEventId());
                             return rollingTicketCountByVenue;
                         },
                         // ktable (materialized) configuration
@@ -220,19 +223,33 @@ public class TopOutsideState {
     @AllArgsConstructor
     public static class RollingTicketCountByVenue{
         private String venueName;
-        private double totalOutOfStateTicketsPerVenue;
-        private double totalEventsForVenue;
+        private double totalOutOfStateTicketsPerVenue=0;
+        private double totalTicketsForVenue=0;
+        private double totalEventsForVenue=0;
         private double rollingAvg;
-        public RollingTicketCountByVenue() {
-            totalOutOfStateTicketsPerVenue=0;
-            totalEventsForVenue=0;
-        }
-        public void calculateRollingAvg(int ticketsPerEvent){
 
-            this.totalOutOfStateTicketsPerVenue += ticketsPerEvent;
-            this.totalEventsForVenue++;
-            log.info("calculateRollingAvg '{}'>'{}'", this.totalOutOfStateTicketsPerVenue,this.totalEventsForVenue);
-            this.rollingAvg = this.totalOutOfStateTicketsPerVenue/this.totalEventsForVenue;
+        private List<String> venueIDs = new ArrayList<>();
+        private List<String> eventIDs = new ArrayList<>();
+        public RollingTicketCountByVenue() {
+            log.info("RollingTicketCountByVenue constructor");
+        }
+        public void calculateRollingAvg(int ticketsPerEvent, String venueId, String eventId){
+
+            this.totalOutOfStateTicketsPerVenue = ticketsPerEvent;
+            if (this.venueIDs.indexOf(venueId)<0) {
+                this.venueIDs.add(venueId);
+                this.totalTicketsForVenue++;
+            }
+            else
+            {
+                this.totalTicketsForVenue++;
+            }
+            if (this.eventIDs.indexOf(eventId)<0) {
+                this.eventIDs.add(eventId);
+                this.totalEventsForVenue++;
+            }
+            log.info("calculateRollingAvg '{}'>'{}'>'{}'>'{}'", this.totalTicketsForVenue,this.totalEventsForVenue,this.venueName,eventId);
+            this.rollingAvg = this.totalTicketsForVenue/this.totalEventsForVenue;
         }
 
     }
