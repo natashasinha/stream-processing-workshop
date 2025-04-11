@@ -29,6 +29,19 @@ public class TopStreamStatePerArtistTest {
     // outputs
     private TestOutputTopic<String, TopStreamStatePerArtistResult> outputTopic;
 
+    // help func - print output records
+    private void printOutputRecords(List<TestRecord<String, TopStreamStatePerArtistResult>> records) {
+        System.out.println("=== OUTPUT RECORDS ===");
+        for (TestRecord<String, TopStreamStatePerArtistResult> record : records) {
+            System.out.println("Key: " + record.getKey() +
+                    ", ArtistId: " + record.getValue().getArtistId() +
+                    ", ArtistName: " + record.getValue().getArtistName() +
+                    ", State: " + record.getValue().getState() +
+                    ", Count: " + record.getValue().getStreamCount());
+        }
+        System.out.println("====================");
+    }
+
     @BeforeEach
     void setup() {
         StreamsBuilder builder = new StreamsBuilder();
@@ -102,6 +115,8 @@ public class TopStreamStatePerArtistTest {
 
         // read output records
         List<TestRecord<String, TopStreamStatePerArtistResult>> outputRecords = outputTopic.readRecordsToList();
+        System.out.println("T1 - State with the most streams for a single artist");
+        printOutputRecords(outputRecords);
         assertFalse(outputRecords.isEmpty(), "Expected at least one output record");
 
         // check last output record
@@ -145,6 +160,8 @@ public class TopStreamStatePerArtistTest {
 
         // read output records
         List<TestRecord<String, TopStreamStatePerArtistResult>> outputRecords = outputTopic.readRecordsToList();
+        System.out.println("T2 - State with the most streams when multiple states tie");
+        printOutputRecords(outputRecords);
         assertFalse(outputRecords.isEmpty(), "Expected at least one output record");
 
         // check last output record
@@ -221,6 +238,8 @@ public class TopStreamStatePerArtistTest {
 
         // read output records
         List<TestRecord<String, TopStreamStatePerArtistResult>> outputRecords = outputTopic.readRecordsToList();
+        System.out.println("T3 - Top state for multiple artists");
+        printOutputRecords(outputRecords);
         assertTrue(outputRecords.size() >= 2, "Expected at least 2 output records");
 
         // DEBUG

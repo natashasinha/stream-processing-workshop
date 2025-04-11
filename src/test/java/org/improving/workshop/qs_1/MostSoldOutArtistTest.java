@@ -91,7 +91,7 @@ public class MostSoldOutArtistTest {
         eventInput.pipeInput(event.id(), event);
 
         for (int i = 0; i < 96; i++) {
-            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event.id(), VENUES.randomId()));
+            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate( VENUES.randomId(), event.id()));
         }
 
         // read results
