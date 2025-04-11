@@ -41,7 +41,7 @@ class TopOutsideStateTest {
   public void setup() {
 
     StreamsBuilder streamsBuilder = new StreamsBuilder();
-    //TopOutsideStateTest.configureTopology(streamsBuilder);
+    TopOutsideState.configureTopology(streamsBuilder);
 
     driver = new TopologyTestDriver(streamsBuilder.build(), Streams.buildProperties());
 
@@ -53,7 +53,7 @@ class TopOutsideStateTest {
 
     addressInputTopic = driver.createInputTopic(
             Streams.TOPIC_DATA_DEMO_ADDRESSES,
-            stringSerializer,
+            Serdes.String().serializer(),
             Streams.SERDE_ADDRESS_JSON.serializer()
     );
 
@@ -67,6 +67,7 @@ class TopOutsideStateTest {
             Streams.TOPIC_DATA_DEMO_TICKETS,
             Serdes.String().serializer(),
             Streams.SERDE_TICKET_JSON.serializer()
+
     );
 
     outputTopic = driver.createOutputTopic(
@@ -84,10 +85,7 @@ class TopOutsideStateTest {
   @Test
   @DisplayName("artist event ticket counts")
   public void testArtistEventTicketCounts() {
-    venuesInputTopic.pipeInput("venue-1",new Venue("venue-1","v1_addr","The Sphere",100));
-    venuesInputTopic.pipeInput("venue-2",new Venue("venue-2","v2_addr","Excel Energy Center",100));
-    venuesInputTopic.pipeInput("venue-3",new Venue("venue-3","v3_addr","Guthrie Theater",100));
-    venuesInputTopic.pipeInput("venue-4",new Venue("venue-4","v4_addr","The Met",100));
+
 
     Address v1_addr = new Address("v1_addr","venue-1","formatCode","sType","777 ficticious dr","ln2","Las Vegas","NV","zip","zip5","countycd",0.2221,0.5555);
     Address v2_addr = new Address("v2_addr","venue-1","formatCode","sType","888 dubious blvd","ln2","St. Paul","MN","zip","zip5","countycd",0.2222,0.5555);
@@ -97,6 +95,11 @@ class TopOutsideStateTest {
     addressInputTopic.pipeInput("v2_addr",v2_addr);
     addressInputTopic.pipeInput("v3_addr",v3_addr);
     addressInputTopic.pipeInput("v4_addr",v4_addr);
+
+    venuesInputTopic.pipeInput("venue-1",new Venue("venue-1","v1_addr","The Sphere",100));
+    venuesInputTopic.pipeInput("venue-2",new Venue("venue-2","v2_addr","Excel Energy Center",100));
+    venuesInputTopic.pipeInput("venue-3",new Venue("venue-3","v3_addr","Guthrie Theater",100));
+    venuesInputTopic.pipeInput("venue-4",new Venue("venue-4","v4_addr","The Met",100));
 
     Address c1_addr = new Address("c1_addr","customer-1","formatCode","sType","1111 happy trail","ln2","Denver","CO","zip","zip5","countycd",0.2221,0.5555);
     Address c2_addr = new Address("c2_addr","customer-2","formatCode","sType","222 Sad walk","ln2","Chicago","IL","zip","zip5","countycd",0.2222,0.5555);
@@ -119,38 +122,46 @@ class TopOutsideStateTest {
     eventInputTopic.pipeInput("exciting-event-6", new Event("exciting-event-5", "artist-1", "venue-3", 10, "today"));
     eventInputTopic.pipeInput("exciting-event-7", new Event("exciting-event-5", "artist-1", "venue-4", 10, "today"));
     eventInputTopic.pipeInput("exciting-event-8", new Event("exciting-event-5", "artist-1", "venue-4", 10, "today"));
-
+    
+    
     // Customer-1 tickets
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-1", "exciting-event-1"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-1", "exciting-event-3"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-1", "exciting-event-5"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-1", "exciting-event-7"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-1", "exciting-event-4"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-1", "exciting-event-8"));
+    Ticket t = new Ticket("ticket-1","customer-1","exciting-event-3",100.0);
+
+    ticketInputTopic.pipeInput("t1",t);
+    ticketInputTopic.pipeInput("ticket-2",new Ticket("ticket-2","customer-1","exciting-event-5",100.0));
+    ticketInputTopic.pipeInput("ticket-3",new Ticket("ticket-3","customer-1","exciting-event-7",100.0));
+    ticketInputTopic.pipeInput("ticket-4",new Ticket("ticket-4","customer-1","exciting-event-4",100.0));
+    ticketInputTopic.pipeInput("ticket-5",new Ticket("ticket-5","customer-1","exciting-event-8",100.0));
+    ticketInputTopic.pipeInput("ticket-26",new Ticket("ticket-26","customer-1","exciting-event-1",100.0));
+    
     // Customer-2 tickets
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-2", "exciting-event-1"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-2", "exciting-event-5"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-2", "exciting-event-7"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-2", "exciting-event-6"));
+    ticketInputTopic.pipeInput("ticket-6",new Ticket("ticket-6","customer-2","exciting-event-1",100.0));
+    ticketInputTopic.pipeInput("ticket-7",new Ticket("ticket-7","customer-2","exciting-event-5",100.0));
+    ticketInputTopic.pipeInput("ticket-8",new Ticket("ticket-8","customer-2","exciting-event-7",100.0));
+    ticketInputTopic.pipeInput("ticket-9",new Ticket("ticket-9","customer-2","exciting-event-6",100.0));
+    
     // Customer-3 tickets
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-3", "exciting-event-1"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-3", "exciting-event-5"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-3", "exciting-event-7"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-3", "exciting-event-4"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-3", "exciting-event-6"));
+    ticketInputTopic.pipeInput("ticket-10",new Ticket("ticket-10","customer-3","exciting-event-1",100.0));
+    ticketInputTopic.pipeInput("ticket-11",new Ticket("ticket-11","customer-3","exciting-event-5",100.0));
+    ticketInputTopic.pipeInput("ticket-12",new Ticket("ticket-12","customer-3","exciting-event-7",100.0));
+    ticketInputTopic.pipeInput("ticket-13",new Ticket("ticket-13","customer-3","exciting-event-4",100.0));
+    ticketInputTopic.pipeInput("ticket-14",new Ticket("ticket-14","customer-3","exciting-event-6",100.0));
+    
     // Customer-4 tickets
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-4", "exciting-event-1"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-4", "exciting-event-3"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-4", "exciting-event-7"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-4", "exciting-event-4"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-4", "exciting-event-6"));
+    ticketInputTopic.pipeInput("ticket-15",new Ticket("ticket-15","customer-4","exciting-event-1",100.0));
+    ticketInputTopic.pipeInput("ticket-16",new Ticket("ticket-16","customer-4","exciting-event-3",100.0));
+    ticketInputTopic.pipeInput("ticket-17",new Ticket("ticket-17","customer-4","exciting-event-7",100.0));
+    ticketInputTopic.pipeInput("ticket-18",new Ticket("ticket-18","customer-4","exciting-event-4",100.0));
+    ticketInputTopic.pipeInput("ticket-19",new Ticket("ticket-19","customer-4","exciting-event-6",100.0));
+    
     // Customer-5 tickets
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-5", "exciting-event-1"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-5", "exciting-event-5"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-5", "exciting-event-2"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-5", "exciting-event-4"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-5", "exciting-event-6"));
-    ticketInputTopic.pipeInput(DataFaker.TICKETS.generate("customer-5", "exciting-event-8"));
+    ticketInputTopic.pipeInput("ticket-20",new Ticket("ticket-20","customer-5","exciting-event-1",100.0));
+    ticketInputTopic.pipeInput("ticket-21",new Ticket("ticket-21","customer-5","exciting-event-5",100.0));
+    ticketInputTopic.pipeInput("ticket-22",new Ticket("ticket-22","customer-5","exciting-event-2",100.0));
+    ticketInputTopic.pipeInput("ticket-23",new Ticket("ticket-23","customer-5","exciting-event-4",100.0));
+    ticketInputTopic.pipeInput("ticket-24",new Ticket("ticket-24","customer-5","exciting-event-6",100.0));
+    ticketInputTopic.pipeInput("ticket-25",new Ticket("ticket-25","customer-5","exciting-event-8",100.0));
+    
 
     // When reading the output records
     var outputRecords = outputTopic.readRecordsToList();

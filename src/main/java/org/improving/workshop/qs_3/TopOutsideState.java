@@ -29,6 +29,7 @@ import org.msse.demo.mockdata.music.venue.Venue;
 
 public class TopOutsideState {
     //private final static JsonSerde<TicketsByEventAndVenue> ticketsByEventAndVenueSerde = new JsonSerde<TicketsByEventAndVenue>();
+    public static final JsonSerde<EventTicket> eventTicketSerde = new JsonSerde<>(EventTicket.class);
     public static final JsonSerde<TicketsByEventAndVenue> ticketsByEventAndVenueSerde = new JsonSerde<>(TicketsByEventAndVenue.class);
     public static final JsonSerde<RollingTicketCountByVenue> rollingTicketCountByVenueSerde = new JsonSerde<>(RollingTicketCountByVenue.class);
     // MUST BE PREFIXED WITH "kafka-workshop-"
@@ -38,11 +39,11 @@ public class TopOutsideState {
     public static final JsonSerde<TopOutsideStateResult> topOutsideStateResultSerde = new JsonSerde<>(TopOutsideStateResult.class);
     public static void main(final String[] args){
         final StreamsBuilder builder = new StreamsBuilder();
-        //configureToplogy(builder);
+        configureTopology(builder);
         startStreams(builder);
     }
 
-    static void configureToplogy(final StreamsBuilder builder){
+    static void configureTopology(final StreamsBuilder builder){
         KTable<String, Event> eventsTable = builder
                 .table(TOPIC_DATA_DEMO_EVENTS,
                         Materialized
@@ -84,7 +85,7 @@ public class TopOutsideState {
                 .selectKey((venueAddressId,eventTicketVenueAddress) -> eventTicketVenueAddress.eventTicketVenue.eventTicket.ticket.customerid(), Named.as("rekey_by_customerid"))
                 .join(rekeyedAddressByCustomer,
                         (customerid,eventTicketVenueAddress,customerAddress) -> new EventTicketVenueAddressCustAddress(eventTicketVenueAddress,customerAddress))
-                .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id(), Named.as("rekey_by_venueid"))
+                .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id(), Named.as("rekey_by_venueid2"))
                 .filter((venueid,eventTicketVenueAddressCustAddress) -> !(eventTicketVenueAddressCustAddress.customerAddress.state().equals(eventTicketVenueAddressCustAddress.eventTicketVenueAddress.venueAddress.state())))
                 .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id().concat(eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.eventTicket.event.id()), Named.as("rekey_by_eventvenueid"))
                 .groupByKey()
