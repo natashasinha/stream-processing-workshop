@@ -50,36 +50,60 @@ public class MostSoldOutArtist {
         );
 
         // aggregate ticket counts per event ID
+        // UPDATE - EXPLICITLY SELECT EVENT ID AS KEY BEFORE GROUPING
         KTable<String, Long> ticketsSoldPerEvent = ticketStream
+                .selectKey((key, ticket) -> ticket.eventid())
                 .groupBy((key, ticket) -> ticket.eventid(), Grouped.with(Serdes.String(), SERDE_TICKET_JSON))
                 .count(Materialized.<String, Long, KeyValueStore<Bytes, byte[]>>as("tickets-sold-per-event")
                         .withKeySerde(Serdes.String())
                         .withValueSerde(Serdes.Long()));
 
         // join ticket sales with event details
+        // UPDATE - DEBUG LOGS
         KTable<String, EnrichedEventSales> enrichedEventSales = ticketsSoldPerEvent
                 .join(eventTable,
-                        (soldTickets, event) -> new EnrichedEventSales(event, soldTickets),
+                        (soldTickets, event) -> {
+                            EnrichedEventSales result = new EnrichedEventSales(event, soldTickets);
+                            log.info("Enriched Event Sales: eventId={}, soldTickets={}, capacity={}, ratio={}",
+                                    event.id(), soldTickets, event.capacity(), (double) soldTickets / event.capacity());
+                            return result;
+                        },
                         Materialized.with(Serdes.String(), SERDE_ENRICHED_EVENT_SALES));
 
         // filter events where 95% or more of seats were sold
+        // UPDATE - FIX SOLD OUT EVENT CALCULATION + LOGGING
         KTable<String, EnrichedEventSales> soldOutEvents = enrichedEventSales
-                .filter((eventId, data) -> data.getSoldTickets() >= 0.95 * data.getEvent().capacity());
+                .filter((eventId, data) -> {
+                    boolean isSoldOut = (double) data.getSoldTickets() /
+                            data.getEvent().capacity() >= 0.95;
+                    log.info("Event {} is sold out: {}", eventId, isSoldOut);
+                    return isSoldOut;
+                });
 
         // aggregate the count by artist ID to calculate the number of sold-out events per artist
+        // UPDATE - DEBUG LOGS
         KTable<String, Long> soldOutEventsPerArtist = soldOutEvents
                 .groupBy(
-                        (eventId, eventSales) -> KeyValue.pair(eventSales.getEvent().artistid(), eventSales),
+                        (eventId, eventSales) -> {
+                            String artistId = eventSales.getEvent().artistid();
+                            log.info("Grouping sold-out event {} by artist {}", eventId, artistId);
+                            return KeyValue.pair(artistId, eventSales);
+                        },
                         Grouped.with(Serdes.String(), SERDE_ENRICHED_EVENT_SALES))
                 .count(Materialized.<String, Long, KeyValueStore<Bytes, byte[]>>as("artist-sold-out-count")
                         .withKeySerde(Serdes.String())
                         .withValueSerde(Serdes.Long()));
 
         // convert the artist-sold-out counts to a stream for processing
+        // UPDATE - DEBUG LOGS TO TRACK ARTIST SOLD-OUT COUNTS
         KStream<String, SoldOutCount> artistSoldOutCounts = soldOutEventsPerArtist.toStream()
-                .map((artistId, count) -> KeyValue.pair(artistId, new SoldOutCount(count)));
+                .map((artistId, count) -> {
+                    log.info("Artist {} has {} sold-out events", artistId, count);
+                    return KeyValue.pair(artistId, new SoldOutCount(count));
+                });
 
         // find the artist with the highest sold-out events count
+        // UPDATE - JOIN DIRECTLY WITH ARTIST TABLE
         KGroupedStream<String, SoldOutCount> groupedByArtist = artistSoldOutCounts.groupByKey(
                 Grouped.with(Serdes.String(), SERDE_SOLD_OUT_COUNT)
         );
