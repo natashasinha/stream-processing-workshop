@@ -36,13 +36,14 @@ public class TopOutsideState {
 
     public static final JsonSerde<SortedCounterMap> COUNTER_MAP_JSON_SERDE = new JsonSerde<>(SortedCounterMap.class);
     public static final JsonSerde<TopOutsideStateResult> topOutsideStateResultSerde = new JsonSerde<>(TopOutsideStateResult.class);
+
     public static void main(final String[] args){
         final StreamsBuilder builder = new StreamsBuilder();
-        //configureToplogy(builder);
+        configureTopology(builder);
         startStreams(builder);
     }
 
-    static void configureToplogy(final StreamsBuilder builder){
+    static void configureTopology(final StreamsBuilder builder){
         KTable<String, Event> eventsTable = builder
                 .table(TOPIC_DATA_DEMO_EVENTS,
                         Materialized

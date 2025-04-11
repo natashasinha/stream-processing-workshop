@@ -41,7 +41,7 @@ class TopOutsideStateTest {
   public void setup() {
 
     StreamsBuilder streamsBuilder = new StreamsBuilder();
-    //TopOutsideStateTest.configureTopology(streamsBuilder);
+    TopOutsideState.configureTopology(streamsBuilder);
 
     driver = new TopologyTestDriver(streamsBuilder.build(), Streams.buildProperties());
 
