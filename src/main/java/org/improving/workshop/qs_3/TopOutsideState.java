@@ -79,29 +79,31 @@ public class TopOutsideState {
         builder
                 .stream(TOPIC_DATA_DEMO_TICKETS, Consumed.with(Serdes.String(), SERDE_TICKET_JSON))
                 .selectKey((ticketId, ticketRequest) -> ticketRequest.eventid(), Named.as("rekey-by-eventid"))
+
                 .join(eventsTable,
                         (eventId, ticket, event) -> new EventTicket(ticket, event),Joined.with(Serdes.String(),SERDE_TICKET_JSON,SERDE_EVENT_JSON)
                 )
                 //.peek((eventId, eventStatus) -> log.info("joined ticket with event. '{}'>'{}'", eventId,eventStatus.event.venueid()))
                 .selectKey((eventId, eventTicket) -> eventTicket.event.venueid(), Named.as("rekey_by_venueid"))
 
-                //TODO: need to review join below. Its not working as expected. event-5 is getting joined with venue-4 when it is supposed to be with venue-3 only
-
-
                 .join(venueKTable,
                         (venueId, eventTicket, venue)-> new EventTicketVenue(eventTicket,venue),Joined.with(Serdes.String(),eventTicketSerde,SERDE_VENUE_JSON))
                 //.peek((venueId, eventTicketVenue) -> log.info("joined event-ticket with venue. '{}'>'{}'>'{}'", venueId,eventTicketVenue.eventTicket.event.id(),eventTicketVenue.eventTicket.ticket.id()))
                 .selectKey((venueId,eventTicketVenue) -> eventTicketVenue.venue.addressid(), Named.as("rekey_by_venueAddressId"))
+
                 .join(addressKTable,
                         (addressId, eventTicketVenue, address) -> new EventTicketVenueAddress(eventTicketVenue, address),Joined.with(Serdes.String(),eventTicketVenueSerde,SERDE_ADDRESS_JSON))
                 .selectKey((venueAddressId,eventTicketVenueAddress) -> eventTicketVenueAddress.eventTicketVenue.eventTicket.ticket.customerid(), Named.as("rekey_by_customerid"))
+
                 .join(rekeyedAddressByCustomer,
                         (customerid,eventTicketVenueAddress,customerAddress) -> new EventTicketVenueAddressCustAddress(eventTicketVenueAddress,customerAddress),
                         Joined.with(Serdes.String(),eventTicketVenueAddressSerde,SERDE_ADDRESS_JSON))
                 .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id(), Named.as("rekey_by_venueid2"))
+
                 .filter((venueid,eventTicketVenueAddressCustAddress) -> !(eventTicketVenueAddressCustAddress.customerAddress.state().equals(eventTicketVenueAddressCustAddress.eventTicketVenueAddress.venueAddress.state())))
                 .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id().concat(eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.eventTicket.event.id()), Named.as("rekey_by_eventvenueid"))
                 //.peek((venueid, eventTicketVenueAddressCustAddress) -> log.info("selectKey. '{}'>'{}'", venueid,eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.eventTicket.ticket.id()))
+
                 .groupByKey(Grouped.with(Serdes.String(),eventTicketVenueAddressCustAddressSerde))
                 .aggregate(
                         TicketsByEventAndVenue::new,
@@ -121,6 +123,7 @@ public class TopOutsideState {
                 )
                 .toStream()
                 //.peek((eventVenueId, ticketsByEventAndVenue) -> log.info("after aggregate TicketsByEventAndVenue. '{}'>'{}'", eventVenueId,ticketsByEventAndVenue.outOfStateTicketCount))
+
                 .groupByKey(Grouped.with(Serdes.String(),ticketsByEventAndVenueSerde))
                 .aggregate(
                         RollingTicketCountByVenue::new,
@@ -138,6 +141,7 @@ public class TopOutsideState {
                 .toStream()
                 //.peek((eventVenueId, rollingTicketCountByVenue) -> log.info("after aggregate rollingTicketCountByVenue '{}'-'{}'", eventVenueId,rollingTicketCountByVenue.rollingAvg))
                 .selectKey((k,v) -> "Global")
+
                 .groupByKey(Grouped.with(Serdes.String(),rollingTicketCountByVenueSerde))
                 .aggregate(
                         // initializer
@@ -157,13 +161,11 @@ public class TopOutsideState {
                 // turn it back into a stream so that it can be produced to the OUTPUT_TOPIC
                 .toStream()
                 //.peek((eventVenueId, sortedCounterMap) -> log.info("after aggregate sortedCounterMap '{}'-'{}'", eventVenueId,sortedCounterMap.top().getVenueName()))
-                // trim to only the top 3
                 .mapValues(sortedCounterMap -> {
                     log.info(sortedCounterMap.toString());
                     log.info("EOF");
                     return sortedCounterMap.top();
                 })
-                // NOTE: when using ccloud, the topic must exist or 'auto.create.topics.enable' set to true (dedicated cluster required)
                 //.peek((eventVenueId, topOutsideStateResult) -> log.info("after aggregate topOutsideStateResult '{}'>'{}'>'{}'", eventVenueId,topOutsideStateResult.getVenueName(),topOutsideStateResult.getAvgOutOfStateAttendeesPerEvent()))
                 .to(TopOutsideStateResult.OUTPUT_TOPIC, Produced.with(Serdes.String(),topOutsideStateResultSerde));
 
