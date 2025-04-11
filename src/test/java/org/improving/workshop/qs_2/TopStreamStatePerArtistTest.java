@@ -163,7 +163,7 @@ public class TopStreamStatePerArtistTest {
         artistInput.pipeInput(artistA.id(), artistA);
         artistInput.pipeInput(artistB.id(), artistB);
 
-        // artistA - 5 distinct customers (3 in CA, 2 in NY)
+        // artistA - 5 customers (3 in CA, 2 in NY)
         org.msse.demo.mockdata.customer.address.Address aAddr1 =
                 new org.msse.demo.mockdata.customer.address.Address("A-addr1", "A-cust-1", "formatCode", "sType",
                         "1111 Happy St", "line2", "Los Angeles", "CA", "zip", "zip5", "US", 0.0, 0.0);
@@ -186,7 +186,7 @@ public class TopStreamStatePerArtistTest {
         addressInput.pipeInput(aAddr4.id(), aAddr4);
         addressInput.pipeInput(aAddr5.id(), aAddr5);
 
-        // artistB - 4 distinct customers: (3 in TX, 1 in CA)
+        // artistB - 4 customers: (3 in TX, 1 in CA)
         org.msse.demo.mockdata.customer.address.Address bAddr1 =
                 new org.msse.demo.mockdata.customer.address.Address("B-addr1", "B-cust-1", "formatCode", "sType",
                         "1111 Cool St", "line2", "Houston", "TX", "zip", "zip5", "countycd", 0.0, 0.0);

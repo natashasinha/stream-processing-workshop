@@ -117,8 +117,6 @@ public class TopStreamStatePerArtist {
                 }
         );
 
-        // Modify how we write to the output topic to ensure the test can properly capture the results
-        // We'll use a unique key format to ensure the test can find the latest result for each artist
         finalResult.toStream()
                 .selectKey((artistId, result) -> artistId + "_" + System.currentTimeMillis())
                 .to(
