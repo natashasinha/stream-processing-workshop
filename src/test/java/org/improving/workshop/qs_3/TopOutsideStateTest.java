@@ -27,7 +27,7 @@ class TopOutsideStateTest {
   private final static Deserializer<String> stringDeserializer = Serdes.String().deserializer();
   private final static Deserializer<Long> longDeserializer = Serdes.Long().deserializer();
 
-  private final static JsonSerde<TopOutsideStateResult> topOutOfStateSerde = new JsonSerde<TopOutsideStateResult>();
+  private final static JsonSerde<TopOutsideStateResult> topOutOfStateSerde = new JsonSerde<>(TopOutsideStateResult.class);
 
   private TopologyTestDriver driver;
 
@@ -127,7 +127,7 @@ class TopOutsideStateTest {
     // Customer-1 tickets
     Ticket t = new Ticket("ticket-1","customer-1","exciting-event-3",100.0);
 
-    ticketInputTopic.pipeInput("t1",t);
+    ticketInputTopic.pipeInput("ticket-1",t);
     ticketInputTopic.pipeInput("ticket-2",new Ticket("ticket-2","customer-1","exciting-event-5",100.0));
     ticketInputTopic.pipeInput("ticket-3",new Ticket("ticket-3","customer-1","exciting-event-7",100.0));
     ticketInputTopic.pipeInput("ticket-4",new Ticket("ticket-4","customer-1","exciting-event-4",100.0));
