@@ -17,21 +17,14 @@ public class TopStreamStatePerArtist {
 
     public static final String OUTPUT_TOPIC = "kafka-workshop-top-stream-state";
 
-    // serdes for our custom types
+    // serdes for custom types
     public static final JsonSerde<EnrichedStream> SERDE_ENRICHED_STREAM = new JsonSerde<>(EnrichedStream.class);
     public static final JsonSerde<CountByState> SERDE_COUNT_BY_STATE = new JsonSerde<>(CountByState.class);
     public static final JsonSerde<TopStreamStatePerArtistResult> SERDE_TOP_STREAM_STATE_PER_ARTIST_RESULT_JSON = new JsonSerde<>(TopStreamStatePerArtistResult.class);
 
-    /**
-     * The Streams application as a whole can be launched like any normal Java application that has a `main()` method.
-     */
     public static void main(final String[] args) {
         final StreamsBuilder builder = new StreamsBuilder();
-
-        // configure the processing topology
         configureTopology(builder);
-
-        // fire up the engines
         startStreams(builder);
     }
 
@@ -42,11 +35,17 @@ public class TopStreamStatePerArtist {
                 Consumed.with(Serdes.String(), SERDE_STREAM_JSON)
         ).peek((key, value) -> log.info("Stream Received: {}", value));
 
-        // create a table from the ADDRESSES topic (keyed by customer id)
-        KTable<String, org.msse.demo.mockdata.customer.address.Address> addressTable = builder.table(
+        // consume the addresses topic
+        KTable<String, org.msse.demo.mockdata.customer.address.Address> rawAddressTable = builder.table(
                 TOPIC_DATA_DEMO_ADDRESSES,
                 Consumed.with(Serdes.String(), SERDE_ADDRESS_JSON)
         );
+        // re-key the address table so that the key becomes the customer id
+        KTable<String, org.msse.demo.mockdata.customer.address.Address> addressTable = rawAddressTable
+                .toStream()
+                .selectKey((addressId, address) -> address.customerid())
+                .peek((customerId, address) -> log.info("Address Table - Key: {}, Address: {}", customerId, address))
+                .toTable();
 
         // enrich the stream events with customer state via a join on customer id
         KStream<String, EnrichedStream> enrichedStreams = streamEvents.selectKey(
@@ -54,36 +53,50 @@ public class TopStreamStatePerArtist {
         ).join(
                 addressTable,
                 (stream, address) -> new EnrichedStream(stream, address.state())
-        );
+        ).peek((key, enriched) -> log.info("EnrichedStream: {}", enriched));
 
-        // re-key the stream with a composite key: artistId|state
+        // re-key the stream with composite key - artistId|state
         KStream<String, EnrichedStream> keyedByArtistState = enrichedStreams.selectKey(
                 (key, enriched) -> enriched.getArtistId() + "|" + enriched.getState()
-        );
+        ).peek((compositeKey, enriched) -> log.info("Composite Key: {}, Stream: {}", compositeKey, enriched));
 
-        // 5. Group by the composite key and count streams per artist per state
-        KGroupedStream<String, EnrichedStream> groupedByArtistState = keyedByArtistState.groupByKey(
-                Grouped.with(Serdes.String(), SERDE_ENRICHED_STREAM)
-        );
-        KTable<String, Long> countPerArtistState = groupedByArtistState.count();
+        // group by composite key and count streams per artist per state
+        KTable<String, Long> countPerArtistState = keyedByArtistState
+                .groupByKey(Grouped.with(Serdes.String(), SERDE_ENRICHED_STREAM))
+                .aggregate(
+                        () -> 0L,
+                        (key, value, aggregate) -> aggregate + 1L,  // adder
+                        Materialized.with(Serdes.String(), Serdes.Long())
+                );
+
+        countPerArtistState.toStream()
+                .peek((compositeKey, count) -> log.info("Count for {}: {}", compositeKey, count));
 
         // convert the composite key counts to a stream keyed by artist id, with value as CountByState
         KStream<String, CountByState> stateCounts = countPerArtistState.toStream().map((compositeKey, count) -> {
             String[] parts = compositeKey.split("\\|");
             String artistId = parts[0];
             String state = parts[1];
-            return KeyValue.pair(artistId, new CountByState(state, count));
+            CountByState cs = new CountByState(state, count);
+            log.info("Mapped CountByState: artistId: {}, {}", artistId, cs);
+            return KeyValue.pair(artistId, cs);
         });
 
         // group by artist id and reduce to select the state with the highest stream count per artist
-        KGroupedStream<String, CountByState> groupedByArtist = stateCounts.groupByKey(
-                Grouped.with(Serdes.String(), SERDE_COUNT_BY_STATE)
-        );
-        KTable<String, CountByState> topStatePerArtist = groupedByArtist.reduce((agg, newVal) ->
-                newVal.getCount() > agg.getCount() ? newVal : agg
-        );
+        KTable<String, CountByState> topStatePerArtist = stateCounts
+                .groupByKey(Grouped.with(Serdes.String(), SERDE_COUNT_BY_STATE))
+                .aggregate(
+                        () -> new CountByState("", 0L),
+                        // aggregator (keep the one with highest count)
+                        (artistId, newVal, agg) -> {
+                            log.info("Comparing counts for artist {}: new state {} count {} vs current state {} count {}",
+                                    artistId, newVal.getState(), newVal.getCount(), agg.getState(), agg.getCount());
+                            return newVal.getCount() > agg.getCount() ? newVal : agg;
+                        },
+                        Materialized.with(Serdes.String(), SERDE_COUNT_BY_STATE)
+                );
 
-        // join with the Artist table to enrich with the artist name
+        // join with artist table to enrich with the artist name
         KTable<String, org.msse.demo.mockdata.music.artist.Artist> artistTable = builder.table(
                 TOPIC_DATA_DEMO_ARTISTS,
                 Consumed.with(Serdes.String(), SERDE_ARTIST_JSON)
@@ -91,19 +104,25 @@ public class TopStreamStatePerArtist {
 
         KTable<String, TopStreamStatePerArtistResult> finalResult = topStatePerArtist.join(
                 artistTable,
-                (countByState, artist) -> new TopStreamStatePerArtistResult(
-                        artist.id(),
-                        artist.name(),
-                        countByState.getState(),
-                        countByState.getCount()
-                )
+                (countByState, artist) -> {
+                    TopStreamStatePerArtistResult result = new TopStreamStatePerArtistResult(
+                            artist.id(),
+                            artist.name(),
+                            countByState.getState(),
+                            countByState.getCount()
+                    );
+                    log.info("Final result: artistId: {}, artistName: {}, state: {}, count: {}",
+                            result.getArtistId(), result.getArtistName(), result.getState(), result.getStreamCount());
+                    return result;
+                }
         );
 
-        // write the final result to the output topic
-        finalResult.toStream().to(
-                OUTPUT_TOPIC,
-                Produced.with(Serdes.String(), SERDE_TOP_STREAM_STATE_PER_ARTIST_RESULT_JSON)
-        );
+        finalResult.toStream()
+                .selectKey((artistId, result) -> artistId + "_" + System.currentTimeMillis())
+                .to(
+                        OUTPUT_TOPIC,
+                        Produced.with(Serdes.String(), SERDE_TOP_STREAM_STATE_PER_ARTIST_RESULT_JSON)
+                );
     }
 
     @Data
