@@ -170,7 +170,7 @@ class TopOutsideStateTest {
     //assertEquals(1, outputRecords.getLast());
 
     //expected output: {"venueName":"Guthrie Theater", "avgOutOfStateAttendeesPerEvent":3.5}
-    assertEquals("The Sphere", outputRecords.getLast().value().getVenueName());
-    assertEquals(4.0, outputRecords.getLast().value().getAvgOutOfStateAttendeesPerEvent());
+    assertEquals("Guthrie Theater", outputRecords.getLast().value().getVenueName());
+    assertEquals(3.5, outputRecords.getLast().value().getAvgOutOfStateAttendeesPerEvent());
   }
 }
