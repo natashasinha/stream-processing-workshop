@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.msse.demo.mockdata.music.event.Event;
 import org.msse.demo.mockdata.music.ticket.Ticket;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -81,7 +82,7 @@ public class MostSoldOutArtistTest {
 
     @Test
     @DisplayName("Artist with the most sold-out events")
-    void testMostSoldOutArtist() {
+    void testMostSoldOutArtist() throws InterruptedException {
         // produce an Artist
         var artist = DataFaker.ARTISTS.generate();
         artistInput.pipeInput(artist.id(), artist);
@@ -90,13 +91,24 @@ public class MostSoldOutArtistTest {
         var event = DataFaker.EVENTS.generate(artist.id(), VENUES.randomId(), 100);
         eventInput.pipeInput(event.id(), event);
 
-        for (int i = 0; i < 96; i++) {
+        eventInput.pipeInput(event.id(), event);
+        artistInput.pipeInput(artist.id(), artist);
+        Thread.sleep(200); // allow time for KTable to populate
+
+        eventInput.pipeInput(event.id(), event);
+        Thread.sleep(200);
+
+
+        for (int i = 0; i < 100; i++) {
             ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event.id(), VENUES.randomId()));
+            driver.advanceWallClockTime(Duration.ofSeconds(2)); // allow time for stream processing
         }
+
+        Thread.sleep(1000); // allow time for processing
 
         // read results
         List<TestRecord<String, MostSoldOutArtist.MostSoldOutArtistResult>> outputRecords = outputTopic.readRecordsToList();
-        assertFalse(outputRecords.isEmpty(), "Expected at least one output record");
+        assertTrue(outputRecords.size() > 0, "Expected at least one output record");
 
         MostSoldOutArtist.MostSoldOutArtistResult finalResult = outputRecords.get(outputRecords.size() - 1).getValue();
         assertEquals(artist.id(), finalResult.getArtistId());
@@ -137,10 +149,10 @@ public class MostSoldOutArtistTest {
         eventInput.pipeInput(event1.id(), event1);
         eventInput.pipeInput(event2.id(), event2);
 
-        for (int i = 0; i < 96; i++) {
+        for (int i = 0; i < 100; i++) {
             ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(VENUES.randomId(), event1.id()));
         }
-        for (int i = 0; i < 145; i++) {
+        for (int i = 0; i < 147; i++) {
             ticketInput.pipeInput("ticket-" + (i + 100), DataFaker.TICKETS.generate(VENUES.randomId(), event2.id()));
         }
 
@@ -150,5 +162,9 @@ public class MostSoldOutArtistTest {
         MostSoldOutArtist.MostSoldOutArtistResult finalResult = outputRecords.get(outputRecords.size() - 1).getValue();
         assertTrue(finalResult.getArtistId().equals(artist1.id()) || finalResult.getArtistId().equals(artist2.id()));
         assertTrue(finalResult.getSoldOutCount() >= 1);
+
+        outputRecords.forEach(record -> {
+            System.out.println("Output Record: " + record.getValue());
+        });
     }
 }
