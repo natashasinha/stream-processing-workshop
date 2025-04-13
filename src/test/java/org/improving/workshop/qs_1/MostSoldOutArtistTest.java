@@ -84,15 +84,17 @@ public class MostSoldOutArtistTest {
     @DisplayName("Artist with the most sold-out events")
     void testMostSoldOutArtist() throws InterruptedException {
         // produce an Artist
-        var artist = DataFaker.ARTISTS.generate();
-        artistInput.pipeInput(artist.id(), artist);
+
+        var artist1 = DataFaker.ARTISTS.generate("Snow Patrol");
+        artistInput.pipeInput(artist1.id(), artist1);
+
 
         // create event and tickets
-        var event = DataFaker.EVENTS.generate(artist.id(), VENUES.randomId(), 100);
+        var event = DataFaker.EVENTS.generate(artist1.id(), VENUES.randomId(), 100);
         eventInput.pipeInput(event.id(), event);
 
         eventInput.pipeInput(event.id(), event);
-        artistInput.pipeInput(artist.id(), artist);
+        artistInput.pipeInput(artist1.id(), artist1);
         Thread.sleep(200); // allow time for KTable to populate
 
         eventInput.pipeInput(event.id(), event);
@@ -111,8 +113,8 @@ public class MostSoldOutArtistTest {
         assertTrue(outputRecords.size() > 0, "Expected at least one output record");
 
         MostSoldOutArtist.MostSoldOutArtistResult finalResult = outputRecords.get(outputRecords.size() - 1).getValue();
-        assertEquals(artist.id(), finalResult.getArtistId());
-        assertEquals(artist.name(), finalResult.getArtistName());
+        assertEquals(artist1.id(), finalResult.getArtistId());
+        assertEquals(artist1.name(), finalResult.getArtistName());
         assertTrue(finalResult.getSoldOutCount() >= 1);
     }
 
@@ -139,13 +141,13 @@ public class MostSoldOutArtistTest {
     @Test
     @DisplayName("Multiple artists with sold-out events")
     void testMultipleArtists() {
-        var artist1 = DataFaker.ARTISTS.generate();
-        var artist2 = DataFaker.ARTISTS.generate();
+        var artist1 = DataFaker.ARTISTS.generate("Blink-182");
+        var artist2 = DataFaker.ARTISTS.generate("Nickleback");
         artistInput.pipeInput(artist1.id(), artist1);
         artistInput.pipeInput(artist2.id(), artist2);
 
-        var event1 = DataFaker.EVENTS.generate(VENUES.randomId(), artist1.id(), 100);
-        var event2 = DataFaker.EVENTS.generate(VENUES.randomId(), artist2.id(), 150);
+        var event1 = DataFaker.EVENTS.generate(artist1.id(), VENUES.randomId(), 100);
+        var event2 = DataFaker.EVENTS.generate(artist2.id(), VENUES.randomId(), 150);
         eventInput.pipeInput(event1.id(), event1);
         eventInput.pipeInput(event2.id(), event2);
 

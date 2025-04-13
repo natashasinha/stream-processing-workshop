@@ -34,6 +34,8 @@ public class MostSoldOutArtist {
 
         // start the Kafka Streams application
         startStreams(builder);
+
+
     }
 
     static void configureTopology(final StreamsBuilder builder) {
@@ -48,6 +50,9 @@ public class MostSoldOutArtist {
                 TOPIC_DATA_DEMO_EVENTS,
                 Consumed.with(Serdes.String(), SERDE_EVENT_JSON)
         );
+
+
+
         // aggregate ticket counts per event ID
         // UPDATE - EXPLICITLY SET EVENT ID AS KEY BEFORE GROUPING
         KTable<String, Long> ticketsSoldPerEvent = ticketStream
@@ -60,7 +65,7 @@ public class MostSoldOutArtist {
         // join ticket sales with event details
         // UPDATE - DEBUG LOGS
         KTable<String, EnrichedEventSales> enrichedEventSales = ticketsSoldPerEvent
-                .join(eventTable,
+                .leftJoin(eventTable,
                         (soldTickets, event) -> {
                             EnrichedEventSales result = new EnrichedEventSales(event, soldTickets);
                             log.info("Enriched Event Sales: eventId={}, soldTickets={}, capacity={}, ratio={}",
@@ -109,7 +114,7 @@ public class MostSoldOutArtist {
                 );;
 
         KStream<String, SoldOutCount> topArtists = artistSoldOutCounts
-                .join(globalMaxCount,
+                .leftJoin(globalMaxCount,
                         (soldOutCount, maxCount) -> {
                             if (soldOutCount.getCount().equals(maxCount)) {
                                 return soldOutCount;
@@ -125,7 +130,7 @@ public class MostSoldOutArtist {
                 Consumed.with(Serdes.String(), SERDE_ARTIST_JSON)
         );
 
-        KStream<String, MostSoldOutArtistResult> finalResult = topArtists.join(
+        KStream<String, MostSoldOutArtistResult> finalResult = topArtists.leftJoin(
                 artistTable,
                 (soldOutCount, artist) -> {
                     log.info("JOIN");
