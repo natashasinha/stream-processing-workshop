@@ -38,19 +38,18 @@ public class MostSoldOutArtist {
 
     static void configureTopology(final StreamsBuilder builder) {
         // read Ticket events from the Ticket topic
-        KStream<String, org.msse.demo.mockdata.music.ticket.Ticket> ticketStream = builder.stream(
+        KStream<String, Ticket> ticketStream = builder.stream(
                 TOPIC_DATA_DEMO_TICKETS,
                 Consumed.with(Serdes.String(), SERDE_TICKET_JSON)
         ).peek((key, value) -> log.info("Ticket Received: {}", value));
 
         // create a table from the Events topic
-        KTable<String, org.msse.demo.mockdata.music.event.Event> eventTable = builder.table(
+        KTable<String, Event> eventTable = builder.table(
                 TOPIC_DATA_DEMO_EVENTS,
                 Consumed.with(Serdes.String(), SERDE_EVENT_JSON)
         );
-
         // aggregate ticket counts per event ID
-        // UPDATE - EXPLICITLY SELECT EVENT ID AS KEY BEFORE GROUPING
+        // UPDATE - EXPLICITLY SET EVENT ID AS KEY BEFORE GROUPING
         KTable<String, Long> ticketsSoldPerEvent = ticketStream
                 .selectKey((key, ticket) -> ticket.eventid())
                 .groupBy((key, ticket) -> ticket.eventid(), Grouped.with(Serdes.String(), SERDE_TICKET_JSON))
@@ -69,18 +68,15 @@ public class MostSoldOutArtist {
                             return result;
                         },
                         Materialized.with(Serdes.String(), SERDE_ENRICHED_EVENT_SALES));
-
-        // filter events where 95% or more of seats were sold
-        // UPDATE - FIX SOLD OUT EVENT CALCULATION + LOGGING
+        // filter where 95% or more of seats were solid
+        // UPDATE - FIX SOLD OUT EVENT CALCULATION AND LOGGING
         KTable<String, EnrichedEventSales> soldOutEvents = enrichedEventSales
-                .filter((eventId, data) -> {
-                    boolean isSoldOut = (double) data.getSoldTickets() /
-                            data.getEvent().capacity() >= 0.95;
+                .filter((eventId, soldTicketInfo) -> {
+                    boolean isSoldOut = (double) soldTicketInfo.getSoldTickets() / soldTicketInfo.getEvent().capacity() >= 0.95000;
                     log.info("Event {} is sold out: {}", eventId, isSoldOut);
                     return isSoldOut;
                 });
-
-        // aggregate the count by artist ID to calculate the number of sold-out events per artist
+        // join ticket sales with event details
         // UPDATE - DEBUG LOGS
         KTable<String, Long> soldOutEventsPerArtist = soldOutEvents
                 .groupBy(
@@ -99,18 +95,29 @@ public class MostSoldOutArtist {
         KStream<String, SoldOutCount> artistSoldOutCounts = soldOutEventsPerArtist.toStream()
                 .map((artistId, count) -> {
                     log.info("Artist {} has {} sold-out events", artistId, count);
-                    return KeyValue.pair(artistId, new SoldOutCount(count));
+                    return KeyValue.pair(artistId, new SoldOutCount(artistId, count));
                 });
+        // attempting to fix logic - test cases 1 and 2
+        KTable<String, Long> globalMaxCount = artistSoldOutCounts
+                .map((artistId, soldOutCount) -> KeyValue.pair("GLOBAL", soldOutCount.getCount()))
+                .groupByKey(Grouped.with(Serdes.String(), Serdes.Long()))
+                // Replace reduce with aggregate that always updates
+                .aggregate(
+                        () -> 0L,
+                        (key, newValue, agg) -> newValue > agg ? newValue : agg,
+                        Materialized.with(Serdes.String(), Serdes.Long())
+                );;
 
-        // find the artist with the highest sold-out events count
-        // UPDATE - JOIN DIRECTLY WITH ARTIST TABLE
-        KGroupedStream<String, SoldOutCount> groupedByArtist = artistSoldOutCounts.groupByKey(
-                Grouped.with(Serdes.String(), SERDE_SOLD_OUT_COUNT)
-        );
-
-        KTable<String, SoldOutCount> topSoldOutArtist = groupedByArtist.reduce((agg, newVal) ->
-                newVal.getCount() > agg.getCount() ? newVal : agg
-        );
+        KStream<String, SoldOutCount> topArtists = artistSoldOutCounts
+                .join(globalMaxCount,
+                        (soldOutCount, maxCount) -> {
+                            if (soldOutCount.getCount().equals(maxCount)) {
+                                return soldOutCount;
+                            }
+                            return null;
+                        },
+                        Joined.with(Serdes.String(), SERDE_SOLD_OUT_COUNT, Serdes.Long()))
+                .filter((artistId, count) -> count != null);
 
         // join with the Artist table to enrich with the artist name
         KTable<String, Artist> artistTable = builder.table(
@@ -118,20 +125,21 @@ public class MostSoldOutArtist {
                 Consumed.with(Serdes.String(), SERDE_ARTIST_JSON)
         );
 
-        KTable<String, MostSoldOutArtistResult> finalResult = topSoldOutArtist.join(
+        KStream<String, MostSoldOutArtistResult> finalResult = topArtists.join(
                 artistTable,
-                (soldOutCount, artist) -> new MostSoldOutArtistResult(
-                        artist.id(),
-                        artist.name(),
-                        soldOutCount.getCount()
-                )
+                (soldOutCount, artist) -> {
+                    log.info("JOIN");
+                    return new MostSoldOutArtistResult(
+                            artist.id(),
+                            artist.name(),
+                            soldOutCount.getCount()
+                    );
+                },
+                Joined.with(Serdes.String(), SERDE_SOLD_OUT_COUNT, SERDE_ARTIST_JSON)
         );
-
         // write the final result to the output topic
-        finalResult.toStream().to(
-                OUTPUT_TOPIC,
-                Produced.with(Serdes.String(), SERDE_MOST_SOLD_OUT_ARTIST_RESULT_JSON)
-        );
+        finalResult.peek((key, value) -> log.info("Most Sold Out Artist Result: {}", value))
+                .to(OUTPUT_TOPIC, Produced.with(Serdes.String(), SERDE_MOST_SOLD_OUT_ARTIST_RESULT_JSON));
     }
 
     @Data
@@ -146,6 +154,7 @@ public class MostSoldOutArtist {
     @AllArgsConstructor
     @NoArgsConstructor
     public static class SoldOutCount {
+        private String artistId;
         private Long count;
     }
 
