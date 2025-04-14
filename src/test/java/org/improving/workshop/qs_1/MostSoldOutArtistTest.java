@@ -151,6 +151,9 @@ public class MostSoldOutArtistTest {
         eventInput.pipeInput(event1.id(), event1);
         eventInput.pipeInput(event2.id(), event2);
 
+        // Let the eventTable materialize
+        driver.advanceWallClockTime(Duration.ofSeconds(1));
+
         for (int i = 0; i < 100; i++) {
             ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(VENUES.randomId(), event1.id()));
         }
@@ -161,9 +164,18 @@ public class MostSoldOutArtistTest {
         List<TestRecord<String, MostSoldOutArtist.MostSoldOutArtistResult>> outputRecords = outputTopic.readRecordsToList();
         assertFalse(outputRecords.isEmpty(), "Expected at least one output record");
 
-        MostSoldOutArtist.MostSoldOutArtistResult finalResult = outputRecords.get(outputRecords.size() - 1).getValue();
-        assertTrue(finalResult.getArtistId().equals(artist1.id()) || finalResult.getArtistId().equals(artist2.id()));
-        assertTrue(finalResult.getSoldOutCount() >= 1);
+// Only keep the final emitted results (might have duplicates before max was reached)
+        List<String> topArtistIds = outputRecords.stream()
+                .filter(record -> record.getValue().getSoldOutCount() != null)
+                .filter(record -> record.getValue().getSoldOutCount().equals(1L)) // assuming 1 is the max
+                .map(record -> record.getValue().getArtistId())
+                .distinct()
+                .toList();
+
+        System.out.println("Top artist IDs: " + topArtistIds);
+
+        assertTrue(topArtistIds.contains(artist1.id()), "Expected artist1 to be among top artists");
+        assertTrue(topArtistIds.contains(artist2.id()), "Expected artist2 to be among top artists");
 
         outputRecords.forEach(record -> {
             System.out.println("Output Record: " + record.getValue());

@@ -34,8 +34,6 @@ public class MostSoldOutArtist {
 
         // start the Kafka Streams application
         startStreams(builder);
-
-
     }
 
     static void configureTopology(final StreamsBuilder builder) {
@@ -67,12 +65,19 @@ public class MostSoldOutArtist {
         KTable<String, EnrichedEventSales> enrichedEventSales = ticketsSoldPerEvent
                 .leftJoin(eventTable,
                         (soldTickets, event) -> {
+                        if (event == null) {
+                            log.warn("Skipping join for null event");
+                            return null;
+                        }
                             EnrichedEventSales result = new EnrichedEventSales(event, soldTickets);
                             log.info("Enriched Event Sales: eventId={}, soldTickets={}, capacity={}, ratio={}",
                                     event.id(), soldTickets, event.capacity(), (double) soldTickets / event.capacity());
                             return result;
                         },
-                        Materialized.with(Serdes.String(), SERDE_ENRICHED_EVENT_SALES));
+                        Materialized.with(Serdes.String(), SERDE_ENRICHED_EVENT_SALES))
+
+                .filter((key, value) -> value != null);
+
         // filter where 95% or more of seats were solid
         // UPDATE - FIX SOLD OUT EVENT CALCULATION AND LOGGING
         KTable<String, EnrichedEventSales> soldOutEvents = enrichedEventSales
@@ -111,7 +116,7 @@ public class MostSoldOutArtist {
                         () -> 0L,
                         (key, newValue, agg) -> newValue > agg ? newValue : agg,
                         Materialized.with(Serdes.String(), Serdes.Long())
-                );;
+                );
 
         KStream<String, SoldOutCount> topArtists = artistSoldOutCounts
                 .leftJoin(globalMaxCount,
