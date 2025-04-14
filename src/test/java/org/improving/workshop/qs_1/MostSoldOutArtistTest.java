@@ -102,7 +102,7 @@ public class MostSoldOutArtistTest {
 
 
         for (int i = 0; i < 100; i++) {
-            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate(event.id(), VENUES.randomId()));
+            ticketInput.pipeInput("ticket-" + i, DataFaker.TICKETS.generate("customer-" + i, event.id()));
             driver.advanceWallClockTime(Duration.ofSeconds(2)); // allow time for stream processing
         }
 
