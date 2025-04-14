@@ -16,7 +16,9 @@ import org.improving.workshop.samples.PurchaseEventTicket;
 import org.improving.workshop.samples.TopCustomerArtists;
 import org.springframework.kafka.support.serializer.JsonSerde;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static java.util.Collections.reverseOrder;
@@ -37,6 +39,7 @@ public class TopOutsideState {
     public static final JsonSerde<EventTicketVenueAddressCustAddress> eventTicketVenueAddressCustAddressSerde = new JsonSerde<>(EventTicketVenueAddressCustAddress.class);
     public static final JsonSerde<TicketsByEventAndVenue> ticketsByEventAndVenueSerde = new JsonSerde<>(TicketsByEventAndVenue.class);
     public static final JsonSerde<RollingTicketCountByVenue> rollingTicketCountByVenueSerde = new JsonSerde<>(RollingTicketCountByVenue.class);
+    public static final JsonSerde<TicketsByEventAndVenueAndEventCountByVenue> ticketsByEventAndVenueAndEventCountByVenueSerde = new JsonSerde<>(TicketsByEventAndVenueAndEventCountByVenue.class);
     // MUST BE PREFIXED WITH "kafka-workshop-"
     //public static final String OUTPUT_TOPIC = "top-out-of-state-tickets-per-venue";
 
@@ -79,38 +82,65 @@ public class TopOutsideState {
         builder
                 .stream(TOPIC_DATA_DEMO_TICKETS, Consumed.with(Serdes.String(), SERDE_TICKET_JSON))
                 .selectKey((ticketId, ticketRequest) -> ticketRequest.eventid(), Named.as("rekey-by-eventid"))
+
                 .join(eventsTable,
                         (eventId, ticket, event) -> new EventTicket(ticket, event),Joined.with(Serdes.String(),SERDE_TICKET_JSON,SERDE_EVENT_JSON)
                 )
-                //.peek((eventId, eventStatus) -> log.info("joined ticket with event. '{}'-'{}'", eventId,eventStatus.event.venueid()))
+                //.peek((eventId, eventStatus) -> log.info("joined ticket with event. '{}'>'{}'", eventId,eventStatus.event.venueid()))
                 .selectKey((eventId, eventTicket) -> eventTicket.event.venueid(), Named.as("rekey_by_venueid"))
-
-                //TODO: need to review join below. Its not working as expected. event-5 is getting joined with venue-4 when it is supposed to be with venue-3 only
-
 
                 .join(venueKTable,
                         (venueId, eventTicket, venue)-> new EventTicketVenue(eventTicket,venue),Joined.with(Serdes.String(),eventTicketSerde,SERDE_VENUE_JSON))
-                //.peek((venueId, eventTicketVenue) -> log.info("joined event-ticket with venue. '{}'-'{}'", venueId,eventTicketVenue.eventTicket.event.id()))
+                //.peek((venueId, eventTicketVenue) -> log.info("joined event-ticket with venue. '{}'>'{}'>'{}'", venueId,eventTicketVenue.eventTicket.event.id(),eventTicketVenue.eventTicket.ticket.id()))
                 .selectKey((venueId,eventTicketVenue) -> eventTicketVenue.venue.addressid(), Named.as("rekey_by_venueAddressId"))
+
                 .join(addressKTable,
                         (addressId, eventTicketVenue, address) -> new EventTicketVenueAddress(eventTicketVenue, address),Joined.with(Serdes.String(),eventTicketVenueSerde,SERDE_ADDRESS_JSON))
                 .selectKey((venueAddressId,eventTicketVenueAddress) -> eventTicketVenueAddress.eventTicketVenue.eventTicket.ticket.customerid(), Named.as("rekey_by_customerid"))
+
                 .join(rekeyedAddressByCustomer,
                         (customerid,eventTicketVenueAddress,customerAddress) -> new EventTicketVenueAddressCustAddress(eventTicketVenueAddress,customerAddress),
                         Joined.with(Serdes.String(),eventTicketVenueAddressSerde,SERDE_ADDRESS_JSON))
                 .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id(), Named.as("rekey_by_venueid2"))
-                .filter((venueid,eventTicketVenueAddressCustAddress) -> !(eventTicketVenueAddressCustAddress.customerAddress.state().equals(eventTicketVenueAddressCustAddress.eventTicketVenueAddress.venueAddress.state())))
-                .selectKey((customerid, eventTicketVenueAddressCustAddress) -> eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.venue.id().concat(eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.eventTicket.event.id()), Named.as("rekey_by_eventvenueid"))
-                //.peek((venueid, eventTicketVenueAddressCustAddress) -> log.info("selectKey. '{}'-'{}'", venueid,eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.eventTicket.ticket.id()))
+
                 .groupByKey(Grouped.with(Serdes.String(),eventTicketVenueAddressCustAddressSerde))
+                .aggregate(
+                        TicketsByEventAndVenueAndEventCountByVenue::new,
+
+                        (eventVenueId, stream, ticketsByEventAndVenueAndEventCountByVenue) -> {
+                            ticketsByEventAndVenueAndEventCountByVenue.ticketId = stream.eventTicketVenueAddress.eventTicketVenue.eventTicket.ticket.id();
+                            ticketsByEventAndVenueAndEventCountByVenue.eventId = stream.eventTicketVenueAddress.eventTicketVenue.eventTicket.event.id();
+                            ticketsByEventAndVenueAndEventCountByVenue.venueId = stream.eventTicketVenueAddress.eventTicketVenue.venue.id();
+                            ticketsByEventAndVenueAndEventCountByVenue.venueName = stream.eventTicketVenueAddress.eventTicketVenue.venue.name();
+                            ticketsByEventAndVenueAndEventCountByVenue.customerAddress = stream.customerAddress;
+                            ticketsByEventAndVenueAndEventCountByVenue.venueAddress = stream.eventTicketVenueAddress.venueAddress;
+                            ticketsByEventAndVenueAndEventCountByVenue.calculateRollingEventCount(stream.eventTicketVenueAddress.eventTicketVenue.venue.id(),stream.eventTicketVenueAddress.eventTicketVenue.eventTicket.event.id());
+                            return ticketsByEventAndVenueAndEventCountByVenue;
+                        },
+                        // ktable (materialized) configuration
+                        Materialized
+                                .<String, TicketsByEventAndVenueAndEventCountByVenue>as(persistentKeyValueStore("tickets-and-events_by-venue-event-count-by-venue"))
+                                .withKeySerde(Serdes.String())
+                                .withValueSerde(ticketsByEventAndVenueAndEventCountByVenueSerde)
+                )
+                .toStream()
+                .selectKey((ticketId,ticketsByEventAndVenueAndEventCountByVenue) -> ticketsByEventAndVenueAndEventCountByVenue.venueId, Named.as("rekey_by_venueid3"))
+
+                //.filter((venueid,ticketsByEventAndVenueAndEventCountByVenue) -> !(ticketsByEventAndVenueAndEventCountByVenue.customerAddress.state().equals(ticketsByEventAndVenueAndEventCountByVenue.venueAddress.state())))
+                //.selectKey((venueid, ticketsByEventAndVenueAndEventCountByVenue) -> ticketsByEventAndVenueAndEventCountByVenue.venueId.concat(ticketsByEventAndVenueAndEventCountByVenue.eventId), Named.as("rekey_by_eventvenueid"))
+                //.peek((venueid, eventTicketVenueAddressCustAddress) -> log.info("selectKey. '{}'>'{}'", venueid,eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.eventTicket.ticket.id()))
+
+                .groupByKey(Grouped.with(Serdes.String(),ticketsByEventAndVenueAndEventCountByVenueSerde))
                 .aggregate(
                         TicketsByEventAndVenue::new,
 
                         (eventVenueId, stream, ticketsByEventAndVenue) -> {
                             ticketsByEventAndVenue.increamentCount();
-                            ticketsByEventAndVenue.eventId = stream.eventTicketVenueAddress.eventTicketVenue.eventTicket.event.id();
-                            ticketsByEventAndVenue.venueId = stream.eventTicketVenueAddress.eventTicketVenue.venue.id();
-                            ticketsByEventAndVenue.venueName = stream.eventTicketVenueAddress.eventTicketVenue.venue.name();
+                            ticketsByEventAndVenue.eventId = stream.eventId;
+                            ticketsByEventAndVenue.venueId = stream.venueId;
+                            ticketsByEventAndVenue.venueName = stream.venueName;
+                            ticketsByEventAndVenue.totalEventsForVenue = stream.totalEventsForVenue;
+                            ticketsByEventAndVenue.rollingAvg = stream.rollingAvg;
                             return ticketsByEventAndVenue;
                         },
                         // ktable (materialized) configuration
@@ -120,13 +150,17 @@ public class TopOutsideState {
                                 .withValueSerde(ticketsByEventAndVenueSerde)
                 )
                 .toStream()
-                //.peek((eventVenueId, ticketsByEventAndVenue) -> log.info("after aggregate TicketsByEventAndVenue. '{}'-'{}'", eventVenueId,ticketsByEventAndVenue.outOfStateTicketCount))
+                .selectKey((eventVenueId,ticketsByEventAndVenue) -> ticketsByEventAndVenue.venueId, Named.as("rekey_by_venueId_4"))
+                //.peek((eventVenueId, ticketsByEventAndVenue) -> log.info("after aggregate TicketsByEventAndVenue. '{}'>'{}'", eventVenueId,ticketsByEventAndVenue.outOfStateTicketCount))
+
                 .groupByKey(Grouped.with(Serdes.String(),ticketsByEventAndVenueSerde))
                 .aggregate(
                         RollingTicketCountByVenue::new,
                         (eventVenueId, stream, rollingTicketCountByVenue) -> {
                             rollingTicketCountByVenue.venueName = stream.venueName;
-                            rollingTicketCountByVenue.calculateRollingAvg(stream.outOfStateTicketCount);
+                            rollingTicketCountByVenue.totalOutOfStateTicketsPerVenue = stream.getOutOfStateTicketCount();
+                            rollingTicketCountByVenue.rollingAvg=stream.rollingAvg;
+                            //rollingTicketCountByVenue.calculateRollingAvg(stream.outOfStateTicketCount,stream.venueId,stream.getEventId(),stream.totalEventsForVenue);
                             return rollingTicketCountByVenue;
                         },
                         // ktable (materialized) configuration
@@ -137,6 +171,8 @@ public class TopOutsideState {
                 )
                 .toStream()
                 //.peek((eventVenueId, rollingTicketCountByVenue) -> log.info("after aggregate rollingTicketCountByVenue '{}'-'{}'", eventVenueId,rollingTicketCountByVenue.rollingAvg))
+                .selectKey((k,v) -> "Global")
+
                 .groupByKey(Grouped.with(Serdes.String(),rollingTicketCountByVenueSerde))
                 .aggregate(
                         // initializer
@@ -156,10 +192,12 @@ public class TopOutsideState {
                 // turn it back into a stream so that it can be produced to the OUTPUT_TOPIC
                 .toStream()
                 //.peek((eventVenueId, sortedCounterMap) -> log.info("after aggregate sortedCounterMap '{}'-'{}'", eventVenueId,sortedCounterMap.top().getVenueName()))
-                // trim to only the top 3
-                .mapValues(sortedCounterMap -> sortedCounterMap.top())
-                // NOTE: when using ccloud, the topic must exist or 'auto.create.topics.enable' set to true (dedicated cluster required)
-                //.peek((eventVenueId, topOutsideStateResult) -> log.info("after aggregate topOutsideStateResult '{}'-'{}'", eventVenueId,topOutsideStateResult.getVenueName()))
+                .mapValues(sortedCounterMap -> {
+                    //log.info(sortedCounterMap.toString());
+                    //log.info("EOF");
+                    return sortedCounterMap.top();
+                })
+                //.peek((eventVenueId, topOutsideStateResult) -> log.info("after aggregate topOutsideStateResult '{}'>'{}'>'{}'", eventVenueId,topOutsideStateResult.getVenueName(),topOutsideStateResult.getAvgOutOfStateAttendeesPerEvent()))
                 .to(TopOutsideStateResult.OUTPUT_TOPIC, Produced.with(Serdes.String(),topOutsideStateResultSerde));
 
     }
@@ -198,10 +236,12 @@ public class TopOutsideState {
     @Data
     @AllArgsConstructor
     public static class TicketsByEventAndVenue {
+        public double rollingAvg;
         private String eventId;
         private String venueId;
         private String venueName;
         private int outOfStateTicketCount;
+        private double totalEventsForVenue;
         public TicketsByEventAndVenue() {
             outOfStateTicketCount=0;
         }
@@ -211,20 +251,77 @@ public class TopOutsideState {
     }
     @Data
     @AllArgsConstructor
+    public static class TicketsByEventAndVenueAndEventCountByVenue{
+        private String venueName;
+        private Address customerAddress;
+        private Address venueAddress;
+        private String ticketId;
+        private String eventId;
+        private String venueId;
+        private double totalOutOfStateTicketsPerVenue=0;
+        private double totalEventsForVenue=0;
+        private double rollingAvg;
+        private List<String> venueIDs = new ArrayList<>();
+        private List<String> eventIDs = new ArrayList<>();
+        public TicketsByEventAndVenueAndEventCountByVenue() {
+            //log.info("TicketsByEventAndVenueAndEventCountByVenue constructor");
+        }
+        public void calculateRollingEventCount(String venueId, String eventId){
+            if (this.eventIDs.indexOf(eventId)<0) {
+                this.eventIDs.add(eventId);
+                this.totalEventsForVenue++;
+            }
+            if (this.venueIDs.indexOf(venueId)<0) {
+                this.venueIDs.add(venueId);
+                if(!customerAddress.state().equals(venueAddress.state()))
+                    this.totalOutOfStateTicketsPerVenue++;
+            }
+            else
+            {
+                if(!customerAddress.state().equals(venueAddress.state()))
+                    this.totalOutOfStateTicketsPerVenue++;
+            }
+            this.rollingAvg = this.totalOutOfStateTicketsPerVenue/this.totalEventsForVenue;
+            log.info("calculateRollingEventCount '{}'>'{}'>'{}'>'{}'>'{}'", this.totalOutOfStateTicketsPerVenue,totalEventsForVenue,this.venueName,eventId,this.rollingAvg);
+            //log.info("calculateRollingEventCount '{}'>'{}'>'{}'>'{}'", this.ticketId,this.totalEventsForVenue,this.venueName,eventId);
+        }
+    }
+    @Data
+    @AllArgsConstructor
     public static class RollingTicketCountByVenue{
         private String venueName;
-        private int totalOutOfStateTicketsPerVenue;
-        private int totalEventsForVenue;
+        private double totalOutOfStateTicketsPerVenue=0;
+        private double totalTicketsForVenue=0;
+        private double totalEventsForVenue=0;
         private double rollingAvg;
+
+        private List<String> venueIDs = new ArrayList<>();
+        private List<String> eventIDs = new ArrayList<>();
         public RollingTicketCountByVenue() {
-            totalOutOfStateTicketsPerVenue=0;
-            totalEventsForVenue=0;
+            //log.info("RollingTicketCountByVenue constructor");
         }
-        public void calculateRollingAvg(int ticketsPerEvent){
-            this.totalOutOfStateTicketsPerVenue += ticketsPerEvent;
-            this.totalEventsForVenue++;
-            this.rollingAvg = this.totalOutOfStateTicketsPerVenue/this.totalEventsForVenue;
-        }
+        /*
+        public void calculateRollingAvg(int ticketsPerEvent, String venueId, String eventId, double eventCountForVenue){
+
+            this.totalOutOfStateTicketsPerVenue = ticketsPerEvent;
+
+            if (this.venueIDs.indexOf(venueId)<0) {
+                this.venueIDs.add(venueId);
+                this.totalTicketsForVenue++;
+            }
+            else
+            {
+                this.totalTicketsForVenue++;
+            }
+
+            if (this.eventIDs.indexOf(eventId)<0) {
+                this.eventIDs.add(eventId);
+                this.totalEventsForVenue++;
+            }
+
+            this.rollingAvg = this.totalTicketsForVenue/this.totalOutOfStateTicketsPerVenue;
+            log.info("calculateRollingAvg '{}'>'{}'>'{}'>'{}'>'{}'", this.totalTicketsForVenue,eventCountForVenue,this.venueName,eventId,this.rollingAvg);
+        }*/
 
     }
     @Data
