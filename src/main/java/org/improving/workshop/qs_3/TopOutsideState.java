@@ -130,7 +130,9 @@ public class TopOutsideState {
                 //.selectKey((venueid, ticketsByEventAndVenueAndEventCountByVenue) -> ticketsByEventAndVenueAndEventCountByVenue.venueId.concat(ticketsByEventAndVenueAndEventCountByVenue.eventId), Named.as("rekey_by_eventvenueid"))
                 //.peek((venueid, eventTicketVenueAddressCustAddress) -> log.info("selectKey. '{}'>'{}'", venueid,eventTicketVenueAddressCustAddress.eventTicketVenueAddress.eventTicketVenue.eventTicket.ticket.id()))
 
+
                 .groupByKey(Grouped.with(Serdes.String(),ticketsByEventAndVenueAndEventCountByVenueSerde))
+
                 .aggregate(
                         TicketsByEventAndVenue::new,
 
