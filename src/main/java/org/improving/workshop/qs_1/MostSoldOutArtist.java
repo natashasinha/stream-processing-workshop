@@ -128,6 +128,18 @@ public class MostSoldOutArtist {
                 .to(OUTPUT_TOPIC, Produced.with(Serdes.String(), SERDE_MOST_SOLD_OUT_ARTIST_RESULT_JSON));
     }
 
+    {
+//        "event": {
+//        "id": "evt123",
+//                "artistid": "Snow Patrol",
+//                "capacity": 500,
+//                "venueid": "Varsity Theater",
+//                "startdate": "2024-09-10T20:00:00Z",
+//    ...
+//    },
+//        "soldTickets": 495
+    }
+
     @Data
     @AllArgsConstructor
     @NoArgsConstructor

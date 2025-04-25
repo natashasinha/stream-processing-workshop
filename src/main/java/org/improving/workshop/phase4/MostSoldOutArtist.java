@@ -83,27 +83,27 @@ public class MostSoldOutArtist {
                         .withKeySerde(Serdes.String())
                         .withValueSerde(Serdes.Long()));
 
-//        KStream<String, SoldOutCount> artistSoldOutCounts = soldOutEventsPerArtist.toStream()
-//                .map((artistId, count) -> {
-//                    log.info("Artist {} has {} sold-out events", artistId, count);
-//                    return KeyValue.pair(artistId, new SoldOutCount(artistId, count));
-//                });
-//
-//        KTable<String, SoldOutCount> globalMaxCount = artistSoldOutCounts
-//                .map((artistId, soldOutCount) -> KeyValue.pair("GLOBAL", soldOutCount))
-//                .groupByKey(Grouped.with(Serdes.String(), SERDE_SOLD_OUT_COUNT))
-//                .aggregate(
-//                        () -> null,
-//                        (key, newValue, agg) -> {
-//                            if (agg == null || newValue.getCount() > agg.getCount()) {
-//                                return newValue;
-//                            }
-//                            return agg;
-//                        },
-//                        Materialized
-//                                .<String, SoldOutCount, KeyValueStore<Bytes, byte[]>>with(Serdes.String(), SERDE_SOLD_OUT_COUNT)
-//                                .withCachingDisabled()
-//                );
+        KStream<String, SoldOutCount> artistSoldOutCounts = soldOutEventsPerArtist.toStream()
+                .map((artistId, count) -> {
+                    log.info("Artist {} has {} sold-out events", artistId, count);
+                    return KeyValue.pair(artistId, new SoldOutCount(artistId, count));
+                });
+
+        KTable<String, SoldOutCount> globalMaxCount = artistSoldOutCounts
+                .map((artistId, soldOutCount) -> KeyValue.pair("GLOBAL", soldOutCount))
+                .groupByKey(Grouped.with(Serdes.String(), SERDE_SOLD_OUT_COUNT))
+                .aggregate(
+                        () -> null,
+                        (key, newValue, agg) -> {
+                            if (agg == null || newValue.getCount() > agg.getCount()) {
+                                return newValue;
+                            }
+                            return agg;
+                        },
+                        Materialized
+                                .<String, SoldOutCount, KeyValueStore<Bytes, byte[]>>with(Serdes.String(), SERDE_SOLD_OUT_COUNT)
+                                .withCachingDisabled()
+                );
 
         KTable<String, Artist> artistTable = builder.table(
                 TOPIC_DATA_DEMO_ARTISTS,
