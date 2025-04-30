@@ -19,12 +19,12 @@ import static org.improving.workshop.Streams.*;
 
 @Slf4j
 public class MostSoldOutArtist {
-    public static final String OUTPUT_TOPIC = "kafka-workshop-most-sold-out-artist";
+    public static final String OUTPUT_TOPIC = "data-demo-enrichedeventsales";
 
     // serdes for custom types
     public static final JsonSerde<EnrichedEventSales> SERDE_ENRICHED_EVENT_SALES = new JsonSerde<>(EnrichedEventSales.class);
     public static final JsonSerde<SoldOutCount> SERDE_SOLD_OUT_COUNT = new JsonSerde<>(SoldOutCount.class);
-    public static final JsonSerde<MostSoldOutArtistResult> SERDE_MOST_SOLD_OUT_ARTIST_RESULT_JSON = new JsonSerde<>(MostSoldOutArtistResult.class);
+    public static final JsonSerde<MostSoldOutArtistResult> SERDE_RESULT = new JsonSerde<>(MostSoldOutArtistResult.class);
 
     public static void main(final String[] args) {
         final StreamsBuilder builder = new StreamsBuilder();
@@ -110,22 +110,21 @@ public class MostSoldOutArtist {
                 Consumed.with(Serdes.String(), SERDE_ARTIST_JSON)
         );
 
-//        globalMaxCount
-//                .toStream()
-//                .peek((key, value) -> log.info("globalMaxCount: {}", value))
-//                .map((key, value) -> KeyValue.pair(
-//                        value.getArtistId(),
-//                        new MostSoldOutArtistResult(value.getArtistId(), "NAME GOES HERE", value.getCount())
-//                ))
-//                .join(artistTable,
-//                        (mostSoldOutArtistResult, artist) ->
-//                                new MostSoldOutArtistResult(
-//                                        mostSoldOutArtistResult.getArtistId(),
-//                                        artist.name(),
-//                                        mostSoldOutArtistResult.getSoldOutCount()
-//                                ),
-//                        Joined.with(Serdes.String(), SERDE_MOST_SOLD_OUT_ARTIST_RESULT_JSON, SERDE_ARTIST_JSON))
-//                .to(OUTPUT_TOPIC, Produced.with(Serdes.String(), SERDE_MOST_SOLD_OUT_ARTIST_RESULT_JSON));
+        globalMaxCount
+                .toStream()
+                .peek((key, value) -> log.info("globalMaxCount: {}", value))
+                .map((ignoredKey, soldOut) -> {
+                    MostSoldOutArtistResult result = new MostSoldOutArtistResult(
+                            "GLOBAL",
+                            soldOut.getArtistId(),
+                            soldOut.getCount()
+                    );
+                    return KeyValue.pair("GLOBAL", result);
+                })
+                .to(
+                        OUTPUT_TOPIC,
+                        Produced.with(Serdes.String(), SERDE_RESULT)
+                );
     }
 
     @Data
@@ -148,8 +147,8 @@ public class MostSoldOutArtist {
     @AllArgsConstructor
     @NoArgsConstructor
     public static class MostSoldOutArtistResult {
+        private String eventId;
         private String artistId;
-        private String artistName;
         private Long soldOutCount;
     }
 }
