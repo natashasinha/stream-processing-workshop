@@ -13,10 +13,12 @@ import org.msse.demo.mockdata.customer.address.Address;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TopUniqueStreamingCustomersResult {
-    public static final String OUTPUT_TOPIC = "kafka-workshop-top-unique-streaming-customer-for-artist";
-    private Artist artist;
-    private Stream stream;
-    private Address address;
+    public static final String OUTPUT_TOPIC = "data-demo-TopUniqueStreamingCustomersResults";
+    private String streamId;
+    private String customerId;
+    private String artistId;
+    private String customerState;
+    private String artistName;
 }
 
 

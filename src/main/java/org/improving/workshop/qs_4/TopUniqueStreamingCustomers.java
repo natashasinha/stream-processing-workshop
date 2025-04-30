@@ -63,11 +63,21 @@ public class TopUniqueStreamingCustomers {
                 .stream(TOPIC_DATA_DEMO_STREAMS, Consumed.with(Serdes.String(), SERDE_STREAM_JSON))
                 .selectKey((streamId, stream) -> stream.artistid(), Named.as("rekey-by-artistId"))
                 .join(artistsTable,
-                        (artistId, stream, artist) -> new TopUniqueStreamingCustomersResult(artist,stream,null),Joined.with(Serdes.String(),SERDE_STREAM_JSON,SERDE_ARTIST_JSON)
+                        (artistId, stream, artist) -> new TopUniqueStreamingCustomersResult(
+                                stream.id(),
+                                stream.customerid(),
+                                stream.artistid(),
+                                null,
+                                artist.name()),Joined.with(Serdes.String(),SERDE_STREAM_JSON,SERDE_ARTIST_JSON)
                 )
-                .selectKey((artistId, topUniqueStreamingCustomersResult) -> topUniqueStreamingCustomersResult.getStream().customerid(), Named.as("rekey-by-stream-customerid"))
+                .selectKey((artistId, topUniqueStreamingCustomersResult) -> topUniqueStreamingCustomersResult.getCustomerId(), Named.as("rekey-by-stream-customerid"))
                 .join(rekeyedAddressByCustomer,
-                        (customerId, topUniqueStreamingCustomersResult, address) -> new TopUniqueStreamingCustomersResult(topUniqueStreamingCustomersResult.getArtist(), topUniqueStreamingCustomersResult.getStream(),address),Joined.with(Serdes.String(),topUniqueStreamingCustomersResultSerde,SERDE_ADDRESS_JSON)
+                        (customerId, topUniqueStreamingCustomersResult, address) -> new TopUniqueStreamingCustomersResult(
+                                topUniqueStreamingCustomersResult.getStreamId(),
+                                topUniqueStreamingCustomersResult.getCustomerId(),
+                                topUniqueStreamingCustomersResult.getArtistId(),
+                                address.state(),
+                                topUniqueStreamingCustomersResult.getArtistName()),Joined.with(Serdes.String(),topUniqueStreamingCustomersResultSerde,SERDE_ADDRESS_JSON)
                 )
                 .to(TopUniqueStreamingCustomersResult.OUTPUT_TOPIC, Produced.with(Serdes.String(),topUniqueStreamingCustomersResultSerde));
 
