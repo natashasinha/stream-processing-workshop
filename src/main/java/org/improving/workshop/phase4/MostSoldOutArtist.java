@@ -66,7 +66,7 @@ public class MostSoldOutArtist {
 
         KTable<String, EnrichedEventSales> soldOutEvents = enrichedEventSales
                 .filter((eventId, soldTicketInfo) -> {
-                    boolean isSoldOut = (double) soldTicketInfo.getSoldTickets() / soldTicketInfo.getEvent().capacity() >= 0.95000;
+                    boolean isSoldOut = (double) soldTicketInfo.getSoldTickets() / soldTicketInfo.getEvent().capacity() >= 0.000095000;
                     log.info("Event {} is sold out: {}", eventId, isSoldOut);
                     return isSoldOut;
                 });

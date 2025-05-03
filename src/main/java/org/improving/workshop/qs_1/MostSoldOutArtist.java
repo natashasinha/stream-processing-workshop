@@ -95,7 +95,9 @@ public class MostSoldOutArtist {
                 .aggregate(
                         () -> null,
                         (key, newValue, agg) -> {
+                            log.info("New sold-out count: {} for artist {}", newValue.getCount(), newValue.getArtistId());
                             if (agg == null || newValue.getCount() > agg.getCount()) {
+                                log.info("New max sold-out count: {} for artist {}", newValue.getCount(), newValue.getArtistId());
                                 return newValue;
                             }
                             return agg;
